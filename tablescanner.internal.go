@@ -28,6 +28,7 @@ type xlsxStream struct {
 	referenceTable         []string
 	styleNumberFormat      map[int]*excelformat.ParsedNumberFormat
 	date1904               bool
+	discardFormatting	bool
 }
 
 type tIteratorXMLSegment byte
@@ -210,6 +211,15 @@ func (xlsx *xlsxStream) GetCurrentSheetId() int {
 	return xlsx.iteratorSheetId
 }
 
+func (xlsx *xlsxStream) SetFormatRaw() {
+	xlsx.discardFormatting=true
+}
+func (xlsx *xlsxStream) SetFormatFormatted() {
+	xlsx.discardFormatting=false
+}
+
+func (xlsx *xlsxStream) SetDiscardDataFormating(flag bool) {
+}
 func (xlsx *xlsxStream) SetSheetId(id int) error {
 	if nil != xlsx.iteratorStream {
 		xlsx.iteratorStream.Close()
@@ -291,14 +301,17 @@ func (xlsx *xlsxStream) Scan() error {
 						panic(fmt.Sprintf("WTF i'm doing here? Cell have to been skipped in this condition! [file=%s sheet=%s at pos %d]", xlsx.zFileName, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset()))
 					}
 					parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
-					if nil == parsedFormat {
-						// style[#currentCellStyleId].numFmt is incorrect
-					} else {
-						currentCellStringFormatted, err := parsedFormat.FormatValue(currentCellString, currentCellTypeStr, xlsx.date1904)
-						if nil != err {
-							// extra virg^W error type... they haunt me
+					if !xlsx.discardFormatting {
+
+						if nil == parsedFormat {
+							// style[#currentCellStyleId].numFmt is incorrect
 						} else {
-							currentCellString = currentCellStringFormatted
+							currentCellStringFormatted, err := parsedFormat.FormatValue(currentCellString, currentCellTypeStr, xlsx.date1904)
+							if nil != err {
+								// extra virg^W error type... they haunt me
+							} else {
+								currentCellString = currentCellStringFormatted
+							}
 						}
 					}
 					if len(xlsx.iteratorData) >= currentColumnNum {

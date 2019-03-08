@@ -25,6 +25,8 @@ type ITableDocumentScanner interface {
 	SetSheetId(id int) error
 	Scan() error
 	GetScanned() []string
+	SetFormatRaw()
+	SetFormatFormatted()
 }
 
 func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
