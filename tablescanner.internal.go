@@ -10,7 +10,6 @@ import (
 	"tablescanner/excelformat"
 )
 
-// todo: сделать логику, чтобы при обнаружении пропущенных рядов выдавалось соответствующее количество пустых массивов
 type xlsxStream struct {
 	sheets                 []TableSheetInfo
 	sheetSelected          int                  // default-opening sheet id
