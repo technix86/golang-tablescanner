@@ -396,8 +396,9 @@ func (xlsx *xlsxStream) Scan() error {
 						err, currentRowNumStr := findXmlTokenAttrValue(&tok, "r")
 						if nil == err {
 							xlsx.iteratorScannedRowNum, err = strconv.Atoi(currentRowNumStr)
-						} else {
-							xlsx.iteratorScannedRowNum=xlsx.iteratorPreviousRowNum+1
+						}
+						if nil != err {
+							xlsx.iteratorScannedRowNum = xlsx.iteratorPreviousRowNum + 1
 						}
 					}
 				case iteratorSegmentWSR:
