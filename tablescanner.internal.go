@@ -260,8 +260,14 @@ func (xlsx *xlsxStream) SetFormatFormattedSciFix() {
 }
 
 func (xlsx *xlsxStream) SetSheetId(id int) error {
+	xlsx.iteratorCapacity = 0
+	xlsx.iteratorPreviousRowNum = 0
+	xlsx.iteratorScannedRowNum = 0
+	xlsx.iteratorData = []string{}
+	xlsx.iteratorXMLSegment = iteratorSegmentRoot
 	if nil != xlsx.iteratorStream {
 		xlsx.iteratorStream.Close()
+		xlsx.iteratorStream = nil // force rewind
 	}
 	if id < 0 || id > len(xlsx.sheets) {
 		return fmt.Errorf("sheet #%d not found", id)
@@ -271,13 +277,6 @@ func (xlsx *xlsxStream) SetSheetId(id int) error {
 		return err
 	}
 	xlsx.iteratorSheetId = id
-	xlsx.sheetSelected = id
-	xlsx.iteratorStream = nil // force rewind
-	xlsx.iteratorCapacity = 0
-	xlsx.iteratorPreviousRowNum = 0
-	xlsx.iteratorScannedRowNum = 0
-	xlsx.iteratorData = []string{}
-	xlsx.iteratorXMLSegment = iteratorSegmentRoot
 	return nil
 }
 func (xlsx *xlsxStream) GetScanned() []string {
