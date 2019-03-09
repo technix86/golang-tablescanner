@@ -23,7 +23,6 @@ const (
 	builtInNumFmtIndex_GENERAL = int(0)
 	builtInNumFmtIndex_INT     = int(1)
 	builtInNumFmtIndex_FLOAT   = int(2)
-	builtInNumFmtIndex_DATE    = int(14)
 	builtInNumFmtIndex_STRING  = int(49)
 	strCellTypeError           = "e"
 	strCellTypeString          = "s"
@@ -441,7 +440,11 @@ func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date19
 	case "0.0000", "#,##0.0000":
 		formattedNum = fmt.Sprintf("%.4f", floatVal)
 	case "0.00e+00", "##0.0e+0":
-		formattedNum = fmt.Sprintf("%e", floatVal)
+		if disallowScientific {
+			return rawValue, nil
+		} else {
+			formattedNum = fmt.Sprintf("%e", floatVal)
+		}
 	case "":
 		// Do nothing.
 	default:
