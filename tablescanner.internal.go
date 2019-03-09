@@ -4,11 +4,11 @@ import (
 	"archive/zip"
 	"encoding/xml"
 	"fmt"
+	"github.com/technix86/golang-tablescanner/excelformat"
 	"io"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"tablescanner/excelformat"
 )
 
 type xlsxStream struct {
