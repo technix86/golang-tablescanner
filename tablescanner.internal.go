@@ -340,8 +340,8 @@ func (xlsx *xlsxStream) Scan() error {
 					if currentColumnNum < 1 {
 						panic(fmt.Sprintf("WTF i'm doing here? Cell have to been skipped in this condition! [file=%s sheet=%s at pos %d]", xlsx.zFileName, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset()))
 					}
-					parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
 					if !xlsx.discardFormatting {
+						parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
 						if nil == parsedFormat {
 							// style[#currentCellStyleId].numFmt is incorrect
 						} else {
@@ -446,10 +446,11 @@ func (xlsx *xlsxStream) Scan() error {
 								return fmt.Errorf("xml string decoding error in [%s] at pos %d: %s", xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset(), err.Error())
 							}
 							if currentCellTypeStr == "s" { // type = shared strings
-								strId, err := strconv.Atoi(tagValue)
+								strId, err := strconv.Atoi(strings.Trim(tagValue, " "))
 								if nil == err {
 									if strId < 0 || strId >= len(xlsx.referenceTable) {
 										// invalid string index
+										tagValue = ""
 										break SkipCurrentToken
 									}
 									tagValue = xlsx.referenceTable[strId]
