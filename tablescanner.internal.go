@@ -1,7 +1,6 @@
 package tablescanner
 
 import (
-	"./excelformat"
 	"archive/zip"
 	"encoding/xml"
 	"fmt"
