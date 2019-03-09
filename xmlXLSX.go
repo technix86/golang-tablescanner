@@ -32,7 +32,7 @@ type xmlWorkbookPr struct {
 	//DefaultThemeVersion string `xml:"defaultThemeVersion,attr,omitempty"`
 	//BackupFile          bool   `xml:"backupFile,attr,omitempty"`
 	//ShowObjects         string `xml:"showObjects,attr,omitempty"`
-	date1904 bool `xml:"date1904,attr"`
+	Date1904 bool `xml:"date1904,attr"`
 }
 
 type xmlSheets struct {

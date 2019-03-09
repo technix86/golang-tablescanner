@@ -319,8 +319,8 @@ func splitFormatOnSemicolon(format string) ([]string, error) {
 	}
 	return append(formats, format[prevIndex:]), nil
 }
-func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType string, date1904 bool) (string, error) {
-	//fmt.Printf("renderCellValue(cellValue %s, fullFormat %#v, cellType %s date1904 %t)\n", cellValue, fullFormat, cellType, date1904)
+func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType string, date1904 bool, disallowScientific bool) (string, error) {
+	//fmt.Printf("renderCellValue(cellValue=%s, fullFormat=%#v, cellType=%s date1904=%t disallowScientific=%t)\n", cellValue, fullFormat, cellType, date1904, disallowScientific)
 	switch cellType {
 	case strCellTypeError:
 		// The error type is what XLSX uses in error cases such as when formulas are invalid.
@@ -362,13 +362,13 @@ func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType str
 	case strCellTypeNumeric:
 		fallthrough
 	case strCellTypeNumericAlt:
-		return fullFormat.formatNumericCell(cellValue, date1904)
+		return fullFormat.formatNumericCell(cellValue, date1904, disallowScientific)
 	default:
 		return cellValue, errors.New("unknown cell type")
 	}
 }
 
-func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date1904 bool) (string, error) {
+func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date1904 bool, disallowScientific bool) (string, error) {
 	rawValue := strings.TrimSpace(cellValue)
 	// If there wasn't a value in the cell, it shouldn't have been marked as Numeric.
 	// It's better to support this case though.
@@ -422,7 +422,7 @@ func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date19
 	case BuiltInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
 		// prefix, showPercent, and suffix cannot apply to the general format
 		// The logic for showing numbers when the format is "general" is much more complicated than the rest of these.
-		generalFormatted, err := generalNumericScientific(cellValue, true)
+		generalFormatted, err := generalNumericScientific(cellValue, !disallowScientific)
 		if err != nil {
 			return rawValue, nil
 		}

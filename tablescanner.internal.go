@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"tablescanner/excelformat"
@@ -22,13 +23,16 @@ type xlsxStream struct {
 	iteratorXMLSegment     tIteratorXMLSegment  // current decoder xml tree location
 	iteratorCapacity       int                  // default result slice capacity, synchronizes while Scan()
 	zFileName              string               // original filename
+	zPathSharedStrings     string               // sharedStrings.xml path from *.rels file
+	zPathStyles            string               // sharedStrings.xml path from *.rels file
 	z                      *zip.ReadCloser      // root zip handler
 	zFiles                 map[string]*zip.File // key=zipPath
 	relations              map[string]string
 	referenceTable         []string
 	styleNumberFormat      map[int]*excelformat.ParsedNumberFormat
 	date1904               bool
-	discardFormatting	bool
+	discardFormatting      bool
+	discardScientific      bool
 }
 
 type tIteratorXMLSegment byte
@@ -52,12 +56,32 @@ func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }
 
+func (xlsx *xlsxStream) findZipHandler(path string) (*zip.File, error) {
+	z, ok := xlsx.zFiles[path]
+	if ok {
+		return z, nil
+	}
+
+	for pathTry, z := range xlsx.zFiles {
+		if strings.ToLower(pathTry) == strings.ToLower(path) {
+			// case-invalid files are possible
+			return z, nil
+		}
+	}
+	return nil, fmt.Errorf("cannot find required file %s", path)
+}
+
 func (xlsx *xlsxStream) getWorkbookRelations(path string) error {
+	currentWorkbookPath := filepath.FromSlash(filepath.Dir(filepath.Dir(path)))
+	defaultPathPrefix := ""
+	if len(currentWorkbookPath) > 0 {
+		defaultPathPrefix = currentWorkbookPath + "/"
+	}
 	rels := new(xmlWorkbookRels)
 	xlsx.relations = make(map[string]string)
-	z, ok := xlsx.zFiles[path]
-	if !ok {
-		return fmt.Errorf("cannot find required file %s", path)
+	z, err := xlsx.findZipHandler(path)
+	if nil != err {
+		return err
 	}
 	rc, err := z.Open()
 	if err != nil {
@@ -69,20 +93,28 @@ func (xlsx *xlsxStream) getWorkbookRelations(path string) error {
 	if err != nil {
 		return err
 	}
+	xlsx.zPathSharedStrings = "xl/sharedStrings.xml";
+	xlsx.zPathStyles = "xl/styles.xml";
 	for _, relation := range rels.Relationships {
 		if relation.Target[0] == '/' {
 			xlsx.relations[relation.Id] = relation.Target[1:]
 		} else {
-			xlsx.relations[relation.Id] = "xl/" + relation.Target
+			xlsx.relations[relation.Id] = defaultPathPrefix + relation.Target
+		}
+		switch strings.ToLower(filepath.Base(relation.Type)) {
+		case "styles":
+			xlsx.zPathStyles = xlsx.relations[relation.Id]
+		case "sharedstrings":
+			xlsx.zPathSharedStrings = xlsx.relations[relation.Id]
 		}
 	}
 	return nil
 }
 func (xlsx *xlsxStream) readWorkbook(path string) error {
 	workbook := new(xmlWorkbook)
-	z, ok := xlsx.zFiles[path]
-	if !ok {
-		return fmt.Errorf("cannot find required file %s", path)
+	z, err := xlsx.findZipHandler(path)
+	if nil != err {
+		return err
 	}
 	rc, err := z.Open()
 	if err != nil {
@@ -94,7 +126,7 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	if err != nil {
 		return err
 	}
-	xlsx.date1904 = workbook.WorkbookPr.date1904
+	xlsx.date1904 = workbook.WorkbookPr.Date1904
 	xlsx.sheets = make([]TableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {
 		// undefined path isn't critical, broken sheet can be softly ignored while fetching
@@ -119,11 +151,12 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	return nil
 }
 
-func (xlsx *xlsxStream) readStyles(path string) error {
+func (xlsx *xlsxStream) readStyles() error {
+	path := xlsx.zPathStyles
 	xlsx.styleNumberFormat = make(map[int]*excelformat.ParsedNumberFormat)
 	parsedNumberFormatCache := make(map[int]*excelformat.ParsedNumberFormat)
-	z, ok := xlsx.zFiles[path]
-	if !ok {
+	z, err := xlsx.findZipHandler(path)
+	if nil != err {
 		// non-critical error: styles file not found
 		return nil
 	}
@@ -150,9 +183,10 @@ func (xlsx *xlsxStream) readStyles(path string) error {
 	return nil
 }
 
-func (xlsx *xlsxStream) readSharedStrings(path string) error {
-	z, ok := xlsx.zFiles[path]
-	if !ok {
+func (xlsx *xlsxStream) readSharedStrings() error {
+	path := xlsx.zPathSharedStrings
+	z, err := xlsx.findZipHandler(path)
+	if nil != err {
 		// non-critical error: sharedStrings file not found
 		return nil
 	}
@@ -212,14 +246,19 @@ func (xlsx *xlsxStream) GetCurrentSheetId() int {
 }
 
 func (xlsx *xlsxStream) SetFormatRaw() {
-	xlsx.discardFormatting=true
+	xlsx.discardFormatting = true
+	xlsx.discardScientific = false
 }
 func (xlsx *xlsxStream) SetFormatFormatted() {
-	xlsx.discardFormatting=false
+	xlsx.discardFormatting = false
+	xlsx.discardScientific = false
 }
 
-func (xlsx *xlsxStream) SetDiscardDataFormating(flag bool) {
+func (xlsx *xlsxStream) SetFormatFormattedSciFix() {
+	xlsx.discardFormatting = false
+	xlsx.discardScientific = true
 }
+
 func (xlsx *xlsxStream) SetSheetId(id int) error {
 	if nil != xlsx.iteratorStream {
 		xlsx.iteratorStream.Close()
@@ -227,8 +266,9 @@ func (xlsx *xlsxStream) SetSheetId(id int) error {
 	if id < 0 || id > len(xlsx.sheets) {
 		return fmt.Errorf("sheet #%d not found", id)
 	}
-	if _, ok := xlsx.zFiles[xlsx.sheets[id].path]; !ok {
-		return fmt.Errorf("sheet [%s] not found", xlsx.sheets[id].path)
+	_, err := xlsx.findZipHandler(xlsx.sheets[id].path)
+	if nil != err {
+		return err
 	}
 	xlsx.iteratorSheetId = id
 	xlsx.sheetSelected = id
@@ -253,9 +293,9 @@ func (xlsx *xlsxStream) GetScanned() []string {
 func (xlsx *xlsxStream) Scan() error {
 	var err error
 	if nil == xlsx.iteratorStream {
-		z, ok := xlsx.zFiles[xlsx.sheets[xlsx.iteratorSheetId].path]
-		if !ok || nil == z {
-			return fmt.Errorf("file stream [%s] not found", xlsx.sheets[xlsx.iteratorSheetId].path)
+		z, err := xlsx.findZipHandler(xlsx.sheets[xlsx.iteratorSheetId].path)
+		if nil != err {
+			return fmt.Errorf("sheet #%d not found: %s", xlsx.iteratorSheetId, err)
 		}
 		xlsx.iteratorStream, err = z.Open()
 		if err != nil {
@@ -302,11 +342,10 @@ func (xlsx *xlsxStream) Scan() error {
 					}
 					parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
 					if !xlsx.discardFormatting {
-
 						if nil == parsedFormat {
 							// style[#currentCellStyleId].numFmt is incorrect
 						} else {
-							currentCellStringFormatted, err := parsedFormat.FormatValue(currentCellString, currentCellTypeStr, xlsx.date1904)
+							currentCellStringFormatted, err := parsedFormat.FormatValue(currentCellString, currentCellTypeStr, xlsx.date1904, xlsx.discardScientific)
 							if nil != err {
 								// extra virg^W error type... they haunt me
 							} else {

@@ -27,6 +27,7 @@ type ITableDocumentScanner interface {
 	GetScanned() []string
 	SetFormatRaw()
 	SetFormatFormatted()
+	SetFormatFormattedSciFix()
 }
 
 func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
@@ -44,11 +45,11 @@ func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
 	if err != nil {
 		return err, nil
 	}
-	err = xlsx.readSharedStrings("xl/sharedStrings.xml")
+	err = xlsx.readSharedStrings()
 	if err != nil {
 		return err, nil
 	}
-	err = xlsx.readStyles("xl/styles.xml")
+	err = xlsx.readStyles()
 	if err != nil {
 		return err, nil
 	}
