@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"encoding/xml"
 	"fmt"
-	"github.com/technix86/golang-tablescanner/excelformat"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -12,37 +11,42 @@ import (
 )
 
 type xlsxStream struct {
-	sheets                 []TableSheetInfo
-	sheetSelected          int                  // default-opening sheet id
-	iteratorPreviousRowNum int                  // last row number that Scan() have reported
-	iteratorScannedRowNum  int                  // current row number fetched by reading, starting with 1
-	iteratorSheetId        int                  // current row-iterating sheet id
-	iteratorStream         io.ReadCloser        // current row-iterating xml stream
-	iteratorData           []string             // current row-iterating row data
-	iteratorDecoder        *xml.Decoder         // statefull decoder object for iterator
-	iteratorXMLSegment     tIteratorXMLSegment  // current decoder xml tree location
-	iteratorCapacity       int                  // default result slice capacity, synchronizes while Scan()
-	zFileName              string               // original filename
-	zPathSharedStrings     string               // sharedStrings.xml path from *.rels file
-	zPathStyles            string               // sharedStrings.xml path from *.rels file
-	z                      *zip.ReadCloser      // root zip handler
-	zFiles                 map[string]*zip.File // key=zipPath
-	relations              map[string]string
-	referenceTable         []string
-	styleNumberFormat      map[int]*excelformat.ParsedNumberFormat
-	date1904               bool
-	discardFormatting      bool
-	discardScientific      bool
+	formatter             excelFormatter
+	sheets                []TableSheetInfo
+	sheetSelected         int                         // default-opening sheet id
+	iteratorLastError     error                       // error which caused last Scan() failed
+	iteratorRowNum        int                         // row number that Scan() implies
+	iteratorScannedRowNum int                         // current row number fetched by reading, starting with 1
+	iteratorScannedData   []string                    // current row-iterating row data
+	iteratorSheetId       int                         // current row-iterating sheet id
+	iteratorStream        io.ReadCloser               // current row-iterating xml stream
+	iteratorDecoder       *xml.Decoder                // statefull decoder object for iterator
+	iteratorXMLSegment    tIteratorXMLSegment         // current decoder xml tree location
+	iteratorCapacity      int                         // default result slice capacity, synchronizes while Scan()
+	zFileName             string                      // original filename
+	zPathSharedStrings    string                      // sharedStrings.xml path from *.rels file
+	zPathStyles           string                      // sharedStrings.xml path from *.rels file
+	z                     *zip.ReadCloser             // root zip handler
+	zFiles                map[string]*zip.File        // key=zipPath
+	relations             map[string]string           // workbook-relation-id to path
+	referenceTable        []string                    // sharedStrings
+	styleNumberFormat     map[int]*parsedNumberFormat // style-id to parsedNumberFormat
 }
 
 type tIteratorXMLSegment byte
+
+var xlsxDefaultFormatter = excelFormatter{
+	discardFormatting: false,
+	allowScientific:   false,
+	dateFixedFormat:   "",
+}
 
 const (
 	sheetStateHidden     = "hidden"
 	sheetStateVeryHidden = "veryHidden"
 )
 
-// usefull xml path checkpoints
+// xml path checkpoints
 const (
 	iteratorSegmentRoot   tIteratorXMLSegment = iota // /
 	iteratorSegmentW                                 // /worksheet
@@ -54,6 +58,14 @@ const (
 
 func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
+}
+
+func closeCloser(rc io.Closer) {
+	_ = rc.Close()
+}
+
+func (xlsx *xlsxStream) Formatter() IExcelFormatter {
+	return &xlsx.formatter
 }
 
 func (xlsx *xlsxStream) findZipHandler(path string) (*zip.File, error) {
@@ -87,7 +99,7 @@ func (xlsx *xlsxStream) getWorkbookRelations(path string) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer closeCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	err = decoder.Decode(rels)
 	if err != nil {
@@ -120,13 +132,14 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer closeCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	err = decoder.Decode(workbook)
 	if err != nil {
 		return err
 	}
-	xlsx.date1904 = workbook.WorkbookPr.Date1904
+	xlsx.formatter = xlsxDefaultFormatter
+	xlsx.formatter.date1904 = workbook.WorkbookPr.Date1904
 	xlsx.sheets = make([]TableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {
 		// undefined path isn't critical, broken sheet can be softly ignored while fetching
@@ -147,14 +160,14 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 			xlsx.sheetSelected = 0
 		}
 	}
-	xlsx.SetSheetId(xlsx.sheetSelected)
+	_ = xlsx.SetSheetId(xlsx.sheetSelected)
 	return nil
 }
 
 func (xlsx *xlsxStream) readStyles() error {
 	path := xlsx.zPathStyles
-	xlsx.styleNumberFormat = make(map[int]*excelformat.ParsedNumberFormat)
-	parsedNumberFormatCache := make(map[int]*excelformat.ParsedNumberFormat)
+	xlsx.styleNumberFormat = make(map[int]*parsedNumberFormat)
+	parsedNumberFormatCache := make(map[int]*parsedNumberFormat)
 	z, err := xlsx.findZipHandler(path)
 	if nil != err {
 		// non-critical error: styles file not found
@@ -164,18 +177,18 @@ func (xlsx *xlsxStream) readStyles() error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer closeCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	styles := &xmlStyleSheet{}
 	err = decoder.Decode(styles)
 	if err != nil {
 		return err
 	}
-	for numFmtId, numFmt := range excelformat.BuiltInNumFmt {
-		parsedNumberFormatCache[numFmtId] = excelformat.ParseNumFmt(numFmt)
+	for numFmtId, numFmt := range builtInNumFmt {
+		parsedNumberFormatCache[numFmtId] = parseNumFmt(numFmt)
 	}
 	for _, numFmt := range styles.NumFmts.NumFmt {
-		parsedNumberFormatCache[numFmt.NumFmtId] = excelformat.ParseNumFmt(numFmt.FormatCode)
+		parsedNumberFormatCache[numFmt.NumFmtId] = parseNumFmt(numFmt.FormatCode)
 	}
 	for styleId, xf := range styles.CellXfs.Xf {
 		xlsx.styleNumberFormat[styleId] = parsedNumberFormatCache[xf.NumFmtId]
@@ -194,7 +207,7 @@ func (xlsx *xlsxStream) readSharedStrings() error {
 	if err != nil {
 		return err
 	}
-	defer rc.Close()
+	defer closeCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	var stateStr string
 	var tmp string
@@ -232,7 +245,7 @@ func (xlsx *xlsxStream) SwitchSheet(id int) error {
 	if id < 0 || id >= len(xlsx.sheets) {
 		return fmt.Errorf("sheet id is out of range")
 	}
-	xlsx.SetSheetId(id)
+	_ = xlsx.SetSheetId(id)
 	return nil
 }
 
@@ -245,28 +258,15 @@ func (xlsx *xlsxStream) GetCurrentSheetId() int {
 	return xlsx.iteratorSheetId
 }
 
-func (xlsx *xlsxStream) SetFormatRaw() {
-	xlsx.discardFormatting = true
-	xlsx.discardScientific = false
-}
-func (xlsx *xlsxStream) SetFormatFormatted() {
-	xlsx.discardFormatting = false
-	xlsx.discardScientific = false
-}
-
-func (xlsx *xlsxStream) SetFormatFormattedSciFix() {
-	xlsx.discardFormatting = false
-	xlsx.discardScientific = true
-}
-
 func (xlsx *xlsxStream) SetSheetId(id int) error {
+	xlsx.iteratorLastError = nil
 	xlsx.iteratorCapacity = 0
-	xlsx.iteratorPreviousRowNum = 0
+	xlsx.iteratorRowNum = 0
 	xlsx.iteratorScannedRowNum = 0
-	xlsx.iteratorData = []string{}
+	xlsx.iteratorScannedData = []string{}
 	xlsx.iteratorXMLSegment = iteratorSegmentRoot
 	if nil != xlsx.iteratorStream {
-		xlsx.iteratorStream.Close()
+		_ = xlsx.iteratorStream.Close()
 		xlsx.iteratorStream = nil // force rewind
 	}
 	if id < 0 || id > len(xlsx.sheets) {
@@ -280,17 +280,17 @@ func (xlsx *xlsxStream) SetSheetId(id int) error {
 	return nil
 }
 func (xlsx *xlsxStream) GetScanned() []string {
-	if xlsx.iteratorScannedRowNum < xlsx.iteratorPreviousRowNum+1 {
-		// we have detected that some rows are not present
-		xlsx.iteratorPreviousRowNum++
+	if xlsx.iteratorScannedRowNum > xlsx.iteratorRowNum {
 		return []string{}
 	}
-	xlsx.iteratorPreviousRowNum = xlsx.iteratorScannedRowNum
-	return xlsx.iteratorData
+	return xlsx.iteratorScannedData
 }
 
-func (xlsx *xlsxStream) Scan() error {
-	var err error
+func (xlsx *xlsxStream) GetLastScanError() error {
+	return xlsx.iteratorLastError
+}
+
+func (xlsx *xlsxStream) requireScanStream() error {
 	if nil == xlsx.iteratorStream {
 		z, err := xlsx.findZipHandler(xlsx.sheets[xlsx.iteratorSheetId].path)
 		if nil != err {
@@ -302,6 +302,28 @@ func (xlsx *xlsxStream) Scan() error {
 		}
 		xlsx.iteratorDecoder = xml.NewDecoder(xlsx.iteratorStream)
 	}
+	return nil
+}
+
+func (xlsx *xlsxStream) Scan() (err error) {
+	// if row we have scanned is not next to previously returned, just increase "previouslyReturned" counter and imply empty row
+	if xlsx.iteratorScannedRowNum > xlsx.iteratorRowNum {
+		xlsx.iteratorRowNum++
+	} else {
+		err = xlsx.scanInternal()
+		if nil == err {
+			xlsx.iteratorRowNum++
+		}
+	}
+	xlsx.iteratorLastError = err
+	return err
+}
+
+func (xlsx *xlsxStream) scanInternal() (err error) {
+	err = xlsx.requireScanStream()
+	if nil != err {
+		return err
+	}
 	currentColumnNum := 0 // 0=explicit invalid state, 1-based
 	currentCellStyleStr := ""
 	currentCellStyleId := -1
@@ -311,7 +333,7 @@ func (xlsx *xlsxStream) Scan() error {
 	for !rowIsParsed {
 		tok, tokenErr := xlsx.iteratorDecoder.Token()
 		if tokenErr != nil || tok == nil {
-			xlsx.SetSheetId(xlsx.iteratorSheetId)
+			_ = xlsx.SetSheetId(xlsx.iteratorSheetId)
 			if io.EOF == tokenErr {
 				return tokenErr
 			}
@@ -339,26 +361,24 @@ func (xlsx *xlsxStream) Scan() error {
 					if currentColumnNum < 1 {
 						panic(fmt.Sprintf("WTF i'm doing here? Cell have to been skipped in this condition! [file=%s sheet=%s at pos %d]", xlsx.zFileName, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset()))
 					}
-					if !xlsx.discardFormatting {
-						parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
-						if nil == parsedFormat {
-							// style[#currentCellStyleId].numFmt is incorrect
+					parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
+					if nil == parsedFormat {
+						// style[#currentCellStyleId].numFmt is incorrect
+					} else {
+						currentCellStringFormatted, err := xlsx.formatter.FormatValue(currentCellString, currentCellTypeStr, parsedFormat)
+						if nil != err {
+							// extra virg^W error type... they haunt me
 						} else {
-							currentCellStringFormatted, err := parsedFormat.FormatValue(currentCellString, currentCellTypeStr, xlsx.date1904, xlsx.discardScientific)
-							if nil != err {
-								// extra virg^W error type... they haunt me
-							} else {
-								currentCellString = currentCellStringFormatted
-							}
+							currentCellString = currentCellStringFormatted
 						}
 					}
-					if len(xlsx.iteratorData) >= currentColumnNum {
-						xlsx.iteratorData[currentColumnNum-1] = currentCellString
+					if len(xlsx.iteratorScannedData) >= currentColumnNum {
+						xlsx.iteratorScannedData[currentColumnNum-1] = currentCellString
 					} else {
-						for len(xlsx.iteratorData) < currentColumnNum-1 {
-							xlsx.iteratorData = append(xlsx.iteratorData, "")
+						for len(xlsx.iteratorScannedData) < currentColumnNum-1 {
+							xlsx.iteratorScannedData = append(xlsx.iteratorScannedData, "")
 						}
-						xlsx.iteratorData = append(xlsx.iteratorData, currentCellString)
+						xlsx.iteratorScannedData = append(xlsx.iteratorScannedData, currentCellString)
 					}
 				}
 			case iteratorSegmentWSRCIs:
@@ -392,13 +412,19 @@ func (xlsx *xlsxStream) Scan() error {
 				case iteratorSegmentWS:
 					if tok.Name.Local == "row" {
 						nextSegment = iteratorSegmentWSR
-						xlsx.iteratorData = make([]string, 0, xlsx.iteratorCapacity)
+						xlsx.iteratorScannedData = make([]string, 0, xlsx.iteratorCapacity)
 						err, currentRowNumStr := findXmlTokenAttrValue(&tok, "r")
 						if nil == err {
+							// attr "r" present, require valid int and greater than previous value
 							xlsx.iteratorScannedRowNum, err = strconv.Atoi(currentRowNumStr)
-						}
-						if nil != err {
-							xlsx.iteratorScannedRowNum = xlsx.iteratorPreviousRowNum + 1
+							if nil != err {
+								return fmt.Errorf("row number \"%s\" is not int file=%s pos=%d", currentRowNumStr, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset())
+							}
+							if xlsx.iteratorScannedRowNum <= xlsx.iteratorRowNum {
+								return fmt.Errorf("row numbers are not strictly increasing ...%d...%d... file=%s pos=%d", xlsx.iteratorRowNum, xlsx.iteratorScannedRowNum, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset())
+							}
+						} else {
+							xlsx.iteratorScannedRowNum = xlsx.iteratorRowNum + 1
 						}
 					}
 				case iteratorSegmentWSR:
@@ -441,7 +467,7 @@ func (xlsx *xlsxStream) Scan() error {
 							tagIsDecoded = true
 							if nil != err {
 								// string decoding failed
-								xlsx.SetSheetId(xlsx.iteratorSheetId)
+								_ = xlsx.SetSheetId(xlsx.iteratorSheetId)
 								return fmt.Errorf("xml string decoding error in [%s] at pos %d: %s", xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset(), err.Error())
 							}
 							if currentCellTypeStr == "s" { // type = shared strings

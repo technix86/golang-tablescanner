@@ -1,4 +1,4 @@
-package excelformat
+package tablescanner
 
 import (
 	"errors"
@@ -8,7 +8,30 @@ import (
 	"strings"
 )
 
-type ParsedNumberFormat struct {
+type excelFormatter struct {
+	discardFormatting bool
+	allowScientific   bool
+	dateFixedFormat   string
+	date1904          bool
+}
+
+func (conf *excelFormatter) DisableFormatting() {
+	conf.discardFormatting = true
+}
+func (conf *excelFormatter) EnableFormatting() {
+	conf.discardFormatting = false
+}
+func (conf *excelFormatter) AllowScientific() {
+	conf.allowScientific = true
+}
+func (conf *excelFormatter) DenyScientific() {
+	conf.allowScientific = false
+}
+func (conf *excelFormatter) SetDateFixedFormat(value string) {
+	conf.dateFixedFormat = value
+}
+
+type parsedNumberFormat struct {
 	numFmt                        string
 	isTimeFormat                  bool
 	negativeFormatExpectsPositive bool
@@ -55,7 +78,7 @@ var fallbackErrorFormat = &formatOptions{
 	reducedFormatString: "general",
 }
 
-var BuiltInNumFmt = map[int]string{
+var builtInNumFmt = map[int]string{
 	0:  "general",
 	1:  "0",
 	2:  "0.00",
@@ -90,11 +113,11 @@ var BuiltInNumFmt = map[int]string{
 	49: "@",
 }
 
-func ParseNumFmt(numFmt string) *ParsedNumberFormat {
+func parseNumFmt(numFmt string) *parsedNumberFormat {
 	if "" == numFmt {
 		numFmt = "general"
 	}
-	parsedNumFmt := &ParsedNumberFormat{
+	parsedNumFmt := &parsedNumberFormat{
 		numFmt: numFmt,
 	}
 	if isTimeFormat(numFmt) {
@@ -318,8 +341,11 @@ func splitFormatOnSemicolon(format string) ([]string, error) {
 	}
 	return append(formats, format[prevIndex:]), nil
 }
-func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType string, date1904 bool, disallowScientific bool) (string, error) {
-	//fmt.Printf("renderCellValue(cellValue=%s, fullFormat=%#v, cellType=%s date1904=%t disallowScientific=%t)\n", cellValue, fullFormat, cellType, date1904, disallowScientific)
+
+func (formatter *excelFormatter) FormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error) {
+	if formatter.discardFormatting {
+		return cellValue, nil
+	}
 	switch cellType {
 	case strCellTypeError:
 		// The error type is what XLSX uses in error cases such as when formulas are invalid.
@@ -341,9 +367,9 @@ func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType str
 		textFormat := fullFormat.textFormat
 		// This switch statement is only for String formats
 		switch textFormat.reducedFormatString {
-		case BuiltInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
+		case builtInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
 			return cellValue, nil
-		case BuiltInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
+		case builtInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
 			return textFormat.prefix + cellValue + textFormat.suffix, nil
 		case "":
 			// If cell is not "General" and there is not an "@" symbol in the format, then the cell's value is not
@@ -361,13 +387,13 @@ func (fullFormat *ParsedNumberFormat) FormatValue(cellValue string, cellType str
 	case strCellTypeNumeric:
 		fallthrough
 	case strCellTypeNumericAlt:
-		return fullFormat.formatNumericCell(cellValue, date1904, disallowScientific)
+		return formatter.formatNumericCell(cellValue, fullFormat)
 	default:
 		return cellValue, errors.New("unknown cell type")
 	}
 }
 
-func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date1904 bool, disallowScientific bool) (string, error) {
+func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat *parsedNumberFormat) (string, error) {
 	rawValue := strings.TrimSpace(cellValue)
 	// If there wasn't a value in the cell, it shouldn't have been marked as Numeric.
 	// It's better to support this case though.
@@ -376,7 +402,7 @@ func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date19
 	}
 
 	if fullFormat.isTimeFormat {
-		return fullFormat.parseTime(rawValue, date1904)
+		return formatter.parseTime(rawValue, fullFormat)
 	}
 	var numberFormat *formatOptions
 	floatVal, floatErr := strconv.ParseFloat(rawValue, 64)
@@ -418,32 +444,33 @@ func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date19
 	// However, at this time we fail to parse those formatting codes and they get replaced with "General"
 	var formattedNum string
 	switch numberFormat.reducedFormatString {
-	case BuiltInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
+	case builtInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
 		// prefix, showPercent, and suffix cannot apply to the general format
 		// The logic for showing numbers when the format is "general" is much more complicated than the rest of these.
-		generalFormatted, err := generalNumericScientific(cellValue, !disallowScientific)
+		generalFormatted, err := formatter.generalNumericScientific(cellValue)
 		if err != nil {
 			return rawValue, nil
 		}
 		return generalFormatted, nil
-	case BuiltInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
+	case builtInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
 		formattedNum = cellValue
-	case BuiltInNumFmt[builtInNumFmtIndex_INT], "#,##0": // Int is "0"
+	case builtInNumFmt[builtInNumFmtIndex_INT], "#,##0": // Int is "0"
 		// Previously this case would cast to int and print with %d, but that will not round the value correctly.
 		formattedNum = fmt.Sprintf("%.0f", floatVal)
 	case "0.0", "#,##0.0":
 		formattedNum = fmt.Sprintf("%.1f", floatVal)
-	case BuiltInNumFmt[builtInNumFmtIndex_FLOAT], "#,##0.00": // Float is "0.00"
+	case builtInNumFmt[builtInNumFmtIndex_FLOAT], "#,##0.00": // Float is "0.00"
 		formattedNum = fmt.Sprintf("%.2f", floatVal)
 	case "0.000", "#,##0.000":
 		formattedNum = fmt.Sprintf("%.3f", floatVal)
 	case "0.0000", "#,##0.0000":
 		formattedNum = fmt.Sprintf("%.4f", floatVal)
 	case "0.00e+00", "##0.0e+0":
-		if disallowScientific {
-			return rawValue, nil
-		} else {
+		if formatter.allowScientific {
 			formattedNum = fmt.Sprintf("%e", floatVal)
+
+		} else {
+			return rawValue, nil
 		}
 	case "":
 		// Do nothing.
@@ -453,7 +480,7 @@ func (fullFormat *ParsedNumberFormat) formatNumericCell(cellValue string, date19
 	return numberFormat.prefix + formattedNum + numberFormat.suffix, nil
 }
 
-func generalNumericScientific(value string, allowScientific bool) (string, error) {
+func (formatter *excelFormatter) generalNumericScientific(value string) (string, error) {
 	if strings.TrimSpace(value) == "" {
 		return "", nil
 	}
@@ -461,7 +488,7 @@ func generalNumericScientific(value string, allowScientific bool) (string, error
 	if err != nil {
 		return value, err
 	}
-	if allowScientific {
+	if formatter.allowScientific {
 		absF := math.Abs(f)
 		// When using General format, numbers that are less than 1e-9 (0.000000001) and greater than or equal to
 		// 1e11 (100,000,000,000) should be shown in scientific notation.
@@ -478,13 +505,16 @@ func generalNumericScientific(value string, allowScientific bool) (string, error
 	return strconv.FormatFloat(f, 'f', -1, 64), nil
 }
 
-func (fullFormat *ParsedNumberFormat) parseTime(value string, date1904 bool) (string, error) {
+func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumberFormat) (string, error) {
 	f, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return value, err
 	}
-	val := TimeFromExcelTime(f, date1904)
+	val := TimeFromExcelTime(f, formatter.date1904)
 	format := fullFormat.numFmt
+	if formatter.dateFixedFormat != "" {
+		format = formatter.dateFixedFormat
+	}
 	// Replace Excel placeholders with Go time placeholders.
 	// For example, replace yyyy with 2006. These are in a specific order,
 	// due to the fact that m is used in month, minute, and am/pm. It would

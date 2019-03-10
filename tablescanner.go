@@ -5,6 +5,8 @@ import (
 	"io"
 )
 
+// @todo someday: merged cell behaviour (mode=[none,showClone,showRef],directions:[row,cell,table]), NB about existing row-skip-behaviour
+
 const (
 	TableSheetVisible    = 0
 	TableSheetHidden     = 1
@@ -18,16 +20,24 @@ type TableSheetInfo struct {
 	rId       string
 }
 
+type IExcelFormatter interface {
+	DisableFormatting()
+	EnableFormatting()
+	AllowScientific()
+	DenyScientific()
+	SetDateFixedFormat(value string)
+	FormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error)
+}
+
 type ITableDocumentScanner interface {
 	io.Closer
+	Formatter() IExcelFormatter
 	GetSheets() []TableSheetInfo
 	GetCurrentSheetId() int
 	SetSheetId(id int) error
 	Scan() error
+	GetLastScanError() error
 	GetScanned() []string
-	SetFormatRaw()
-	SetFormatFormatted()
-	SetFormatFormattedSciFix()
 }
 
 func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
