@@ -25,7 +25,7 @@ type xlsxStream struct {
 	iteratorCapacity      int                         // default result slice capacity, synchronizes while Scan()
 	zFileName             string                      // original filename
 	zPathSharedStrings    string                      // sharedStrings.xml path from *.rels file
-	zPathStyles           string                      // sharedStrings.xml path from *.rels file
+	zPathStyles           string                      // styles.xml path from *.rels file
 	z                     *zip.ReadCloser             // root zip handler
 	zFiles                map[string]*zip.File        // key=zipPath
 	relations             map[string]string           // workbook-relation-id to path
@@ -105,8 +105,8 @@ func (xlsx *xlsxStream) getWorkbookRelations(path string) error {
 	if err != nil {
 		return err
 	}
-	xlsx.zPathSharedStrings = "xl/sharedStrings.xml";
-	xlsx.zPathStyles = "xl/styles.xml";
+	xlsx.zPathSharedStrings = "xl/sharedStrings.xml"
+	xlsx.zPathStyles = "xl/styles.xml"
 	for _, relation := range rels.Relationships {
 		if relation.Target[0] == '/' {
 			xlsx.relations[relation.Id] = relation.Target[1:]
