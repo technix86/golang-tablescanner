@@ -60,7 +60,7 @@ func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }
 
-func closeCloser(rc io.Closer) {
+func nowarnCloseCloser(rc io.Closer) {
 	_ = rc.Close()
 }
 
@@ -99,7 +99,7 @@ func (xlsx *xlsxStream) getWorkbookRelations(path string) error {
 	if err != nil {
 		return err
 	}
-	defer closeCloser(rc)
+	defer nowarnCloseCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	err = decoder.Decode(rels)
 	if err != nil {
@@ -132,7 +132,7 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	if err != nil {
 		return err
 	}
-	defer closeCloser(rc)
+	defer nowarnCloseCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	err = decoder.Decode(workbook)
 	if err != nil {
@@ -177,7 +177,7 @@ func (xlsx *xlsxStream) readStyles() error {
 	if err != nil {
 		return err
 	}
-	defer closeCloser(rc)
+	defer nowarnCloseCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	styles := &xmlStyleSheet{}
 	err = decoder.Decode(styles)
@@ -207,7 +207,7 @@ func (xlsx *xlsxStream) readSharedStrings() error {
 	if err != nil {
 		return err
 	}
-	defer closeCloser(rc)
+	defer nowarnCloseCloser(rc)
 	decoder := xml.NewDecoder(rc)
 	var stateStr string
 	var tmp string
