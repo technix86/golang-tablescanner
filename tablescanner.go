@@ -5,6 +5,10 @@ import (
 )
 
 // @todo someday: merged cell behaviour (mode=[none,showClone,showRef],directions:[row,cell,table]), NB about existing row-skip-behaviour
+// @todo: implement xls support
+// @todo: implement csv support
+// @todo: implement excel-xml support
+// @todo: implement html support
 // @todo: gen tests
 
 const (
@@ -26,6 +30,9 @@ type IExcelFormatter interface {
 	AllowScientific()
 	DenyScientific()
 	SetDateFixedFormat(value string)
+	SetDecimalSeparator(value string)
+	SetTrimOn()
+	SetTrimOff()
 	FormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error)
 }
 

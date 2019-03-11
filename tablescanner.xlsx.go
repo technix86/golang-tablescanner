@@ -35,12 +35,6 @@ type xlsxStream struct {
 
 type tIteratorXMLSegment byte
 
-var xlsxDefaultFormatter = excelFormatter{
-	discardFormatting: false,
-	allowScientific:   false,
-	dateFixedFormat:   "",
-}
-
 const (
 	sheetStateHidden     = "hidden"
 	sheetStateVeryHidden = "veryHidden"
@@ -229,7 +223,7 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	if err != nil {
 		return err
 	}
-	xlsx.formatter = xlsxDefaultFormatter
+	xlsx.formatter = *newExcelFormatter()
 	xlsx.formatter.date1904 = workbook.WorkbookPr.Date1904
 	xlsx.sheets = make([]TableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {

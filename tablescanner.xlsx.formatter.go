@@ -12,7 +12,15 @@ type excelFormatter struct {
 	discardFormatting bool
 	allowScientific   bool
 	dateFixedFormat   string
+	decimalSeparator  string
+	trim              bool
 	date1904          bool
+}
+
+func newExcelFormatter() *excelFormatter {
+	return &excelFormatter{
+		decimalSeparator: ";",
+	}
 }
 
 func (conf *excelFormatter) DisableFormatting() {
@@ -27,8 +35,18 @@ func (conf *excelFormatter) AllowScientific() {
 func (conf *excelFormatter) DenyScientific() {
 	conf.allowScientific = false
 }
+func (conf *excelFormatter) SetTrimOn() {
+	conf.trim = true
+}
+func (conf *excelFormatter) SetTrimOff() {
+	conf.trim = false
+}
 func (conf *excelFormatter) SetDateFixedFormat(value string) {
 	conf.dateFixedFormat = value
+}
+
+func (conf *excelFormatter) SetDecimalSeparator(value string) {
+	conf.decimalSeparator = value
 }
 
 type parsedNumberFormat struct {
@@ -89,7 +107,8 @@ var builtInNumFmt = map[int]string{
 	11: "0.00e+00",
 	12: "# ?/?",
 	13: "# ??/??",
-	14: "mm-dd-yy",
+	//14: "mm-dd-yy",
+	14: "dd.mm.yyyy", // russian local standart
 	15: "d-mmm-yy",
 	16: "d-mmm",
 	17: "mmm-yy",
@@ -341,8 +360,15 @@ func splitFormatOnSemicolon(format string) ([]string, error) {
 	}
 	return append(formats, format[prevIndex:]), nil
 }
-
 func (formatter *excelFormatter) FormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error) {
+	result, err := formatter.internalFormatValue(cellValue, cellType, fullFormat)
+	if nil == err && formatter.trim {
+		result = strings.TrimSpace(result)
+	}
+	return result, err
+}
+
+func (formatter *excelFormatter) internalFormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error) {
 	if formatter.discardFormatting {
 		return cellValue, nil
 	}
@@ -451,6 +477,7 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 		if err != nil {
 			return rawValue, nil
 		}
+		formatter.setDecimalSeparator(&generalFormatted)
 		return generalFormatted, nil
 	case builtInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
 		formattedNum = cellValue
@@ -477,7 +504,15 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 	default:
 		return rawValue, nil
 	}
+	formatter.setDecimalSeparator(&formattedNum)
 	return numberFormat.prefix + formattedNum + numberFormat.suffix, nil
+}
+
+func (formatter *excelFormatter) setDecimalSeparator(renderedNumber *string) {
+	if len(formatter.decimalSeparator) > 0 && formatter.decimalSeparator != "." {
+		*renderedNumber = strings.Replace(*renderedNumber, ".", string(formatter.decimalSeparator), -1)
+	}
+	return
 }
 
 func (formatter *excelFormatter) generalNumericScientific(value string) (string, error) {
@@ -594,7 +629,7 @@ func isTimeFormat(format string) bool {
 				return false
 			}
 			i += endQuoteIndex + 1
-		case '$', '-', '+', '/', '(', ')', ':', '!', '^', '&', '\'', '~', '{', '}', '<', '>', '=', ' ':
+		case '$', '-', '+', '/', '(', ')', ':', '!', '^', '&', '\'', '~', '{', '}', '<', '>', '=', ' ', '.':
 			// These symbols are allowed to be used as literal without escaping
 		case ',':
 			// This is not documented in the XLSX spec as far as I can tell, but Excel and Numbers will include
