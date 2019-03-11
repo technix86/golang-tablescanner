@@ -56,6 +56,97 @@ const (
 	iteratorSegmentWSRCIs                            // /worksheet/sheetData/row/c/is
 )
 
+type xmlWorkbook struct {
+	WorkbookPr xmlWorkbookPr `xml:"workbookPr"`
+	BookViews  xmlBookViews  `xml:"bookViews"`
+	Sheets     xmlSheets     `xml:"sheets"`
+}
+
+type xmlWorkbookPr struct {
+	Date1904 bool `xml:"date1904,attr"`
+}
+
+type xmlBookViews struct {
+	WorkBookView []xmlWorkBookView `xml:"workbookView"`
+}
+
+type xmlWorkBookView struct {
+	ActiveTab int `xml:"activeTab,attr,omitempty"`
+}
+
+type xmlSheets struct {
+	Sheet []xmlSheet `xml:"sheet"`
+}
+
+type xmlSheet struct {
+	Name    string `xml:"name,attr,omitempty"`
+	SheetId string `xml:"sheetId,attr,omitempty"`
+	Id      string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr,omitempty"`
+	State   string `xml:"state,attr,omitempty"`
+}
+
+type xmlWorkbookRels struct {
+	Relationships []xmlWorkbookRelation `xml:"Relationship"`
+}
+
+type xmlWorkbookRelation struct {
+	Id     string `xml:",attr"`
+	Target string `xml:",attr"`
+	Type   string `xml:",attr"`
+}
+
+type xmlStyleSheet struct {
+	CellXfs xmlCellXfs `xml:"cellXfs,omitempty"`
+	NumFmts xmlNumFmts `xml:"numFmts,omitempty"`
+}
+
+type xmlCellXfs struct {
+	Xf []xmlXf `xml:"xf,omitempty"`
+}
+
+type xmlXf struct {
+	NumFmtId int `xml:"numFmtId,attr"`
+}
+
+type xmlNumFmts struct {
+	NumFmt []xmlNumFmt `xml:"numFmt,omitempty"`
+}
+
+type xmlNumFmt struct {
+	NumFmtId   int    `xml:"numFmtId,attr,omitempty"`
+	FormatCode string `xml:"formatCode,attr,omitempty"`
+}
+
+func newXLSXStream(fileName string) (error, ITableDocumentScanner) {
+	var err error
+	xlsx := &xlsxStream{zFileName: fileName}
+	xlsx.z, err = zip.OpenReader(fileName)
+	if err != nil {
+		return err, nil
+	}
+	xlsx.zFiles = make(map[string]*zip.File, len(xlsx.z.File))
+	for _, v := range xlsx.z.File {
+		xlsx.zFiles[v.Name] = v
+	}
+	err = xlsx.getWorkbookRelations("xl/_rels/workbook.xml.rels")
+	if err != nil {
+		return err, nil
+	}
+	err = xlsx.readSharedStrings()
+	if err != nil {
+		return err, nil
+	}
+	err = xlsx.readStyles()
+	if err != nil {
+		return err, nil
+	}
+	err = xlsx.readWorkbook("xl/workbook.xml")
+	if err != nil {
+		return err, nil
+	}
+	return nil, xlsx
+}
+
 func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }

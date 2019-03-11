@@ -1,11 +1,11 @@
 package tablescanner
 
 import (
-	"archive/zip"
 	"io"
 )
 
 // @todo someday: merged cell behaviour (mode=[none,showClone,showRef],directions:[row,cell,table]), NB about existing row-skip-behaviour
+// @todo: gen tests
 
 const (
 	TableSheetVisible    = 0
@@ -41,31 +41,5 @@ type ITableDocumentScanner interface {
 }
 
 func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
-	var err error
-	xlsx := &xlsxStream{zFileName: fileName}
-	xlsx.z, err = zip.OpenReader(fileName)
-	if err != nil {
-		return err, nil
-	}
-	xlsx.zFiles = make(map[string]*zip.File, len(xlsx.z.File))
-	for _, v := range xlsx.z.File {
-		xlsx.zFiles[v.Name] = v
-	}
-	err = xlsx.getWorkbookRelations("xl/_rels/workbook.xml.rels")
-	if err != nil {
-		return err, nil
-	}
-	err = xlsx.readSharedStrings()
-	if err != nil {
-		return err, nil
-	}
-	err = xlsx.readStyles()
-	if err != nil {
-		return err, nil
-	}
-	err = xlsx.readWorkbook("xl/workbook.xml")
-	if err != nil {
-		return err, nil
-	}
-	return nil, xlsx
+	return newXLSXStream(fileName)
 }
