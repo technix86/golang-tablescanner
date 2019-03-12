@@ -1,15 +1,17 @@
 package tablescanner
 
-import (
-	"io"
-)
-
-// @todo someday: merged cell behaviour (mode=[none,showClone,showRef],directions:[row,cell,table]), NB about existing row-skip-behaviour
+// @todo: gen full i18n-[en|ru] for all builtin numfmts
+// @todo: use i18n for default decimal/thousand separator while rendering
 // @todo: implement xls support
 // @todo: implement csv support
 // @todo: implement excel-xml support
 // @todo: implement html support
 // @todo: gen tests
+// @todo someday: merged cell behaviour (mode=[none,showClone,showRef],directions:[row,cell,table]), NB about existing row-skip-behaviour
+
+import (
+	"io"
+)
 
 const (
 	TableSheetVisible    = 0
@@ -38,6 +40,7 @@ type IExcelFormatter interface {
 
 type ITableDocumentScanner interface {
 	io.Closer
+	SetI18nDefaults(string) error
 	Formatter() IExcelFormatter
 	GetSheets() []TableSheetInfo
 	GetCurrentSheetId() int

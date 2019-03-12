@@ -11,26 +11,29 @@ import (
 )
 
 type xlsxStream struct {
-	formatter             excelFormatter
-	sheets                []TableSheetInfo
-	sheetSelected         int                         // default-opening sheet id
-	iteratorLastError     error                       // error which caused last Scan() failed
-	iteratorRowNum        int                         // row number that Scan() implies
-	iteratorScannedRowNum int                         // current row number fetched by reading, starting with 1
-	iteratorScannedData   []string                    // current row-iterating row data
-	iteratorSheetId       int                         // current row-iterating sheet id
-	iteratorStream        io.ReadCloser               // current row-iterating xml stream
-	iteratorDecoder       *xml.Decoder                // statefull decoder object for iterator
-	iteratorXMLSegment    tIteratorXMLSegment         // current decoder xml tree location
-	iteratorCapacity      int                         // default result slice capacity, synchronizes while Scan()
-	zFileName             string                      // original filename
-	zPathSharedStrings    string                      // sharedStrings.xml path from *.rels file
-	zPathStyles           string                      // styles.xml path from *.rels file
-	z                     *zip.ReadCloser             // root zip handler
-	zFiles                map[string]*zip.File        // key=zipPath
-	relations             map[string]string           // workbook-relation-id to path
-	referenceTable        []string                    // sharedStrings
-	styleNumberFormat     map[int]*parsedNumberFormat // style-id to parsedNumberFormat
+	formatter              excelFormatter
+	fmtI18n                []string // excel built-in number formats depending on system locale
+	sheets                 []TableSheetInfo
+	sheetSelected          int                  // default-opening sheet id
+	iteratorLastError      error                // error which caused last Scan() failed
+	iteratorRowNum         int                  // row number that Scan() implies
+	iteratorScannedRowNum  int                  // current row number fetched by reading, starting with 1
+	iteratorScannedData    []string             // current row-iterating row data
+	iteratorSheetId        int                  // current row-iterating sheet id
+	iteratorStream         io.ReadCloser        // current row-iterating xml stream
+	iteratorDecoder        *xml.Decoder         // statefull decoder object for iterator
+	iteratorXMLSegment     tIteratorXMLSegment  // current decoder xml tree location
+	iteratorCapacity       int                  // default result slice capacity, synchronizes while Scan()
+	zFileName              string               // original filename
+	zPathSharedStrings     string               // sharedStrings.xml path from *.rels file
+	zPathStyles            string               // styles.xml path from *.rels file
+	z                      *zip.ReadCloser      // root zip handler
+	zFiles                 map[string]*zip.File // key=zipPath
+	relations              map[string]string    // workbook-relation-id to path
+	referenceTable         []string             // sharedStrings
+	numFmtCustom           []string
+	style2numFmtId         []int
+	styleNumberFormatCache []*parsedNumberFormat // style-id to parsedNumberFormat
 }
 
 type tIteratorXMLSegment byte
@@ -114,6 +117,10 @@ type xmlNumFmt struct {
 func newXLSXStream(fileName string) (error, ITableDocumentScanner) {
 	var err error
 	xlsx := &xlsxStream{zFileName: fileName}
+	err = xlsx.SetI18nDefaults("en")
+	if nil != err {
+		return err, nil
+	}
 	xlsx.z, err = zip.OpenReader(fileName)
 	if err != nil {
 		return err, nil
@@ -151,6 +158,21 @@ func nowarnCloseCloser(rc io.Closer) {
 
 func (xlsx *xlsxStream) Formatter() IExcelFormatter {
 	return &xlsx.formatter
+}
+
+func (xlsx *xlsxStream) SetI18nDefaults(code string) error {
+	if _, ok := numFmtI18n[code]; !ok {
+		return fmt.Errorf("Unknown i18n[%s]", code)
+	}
+	xlsx.fmtI18n = []string{}
+	for id, numFmt := range numFmtI18n[code].numFmtDefaults {
+		for len(xlsx.fmtI18n) < id+1 {
+			xlsx.fmtI18n = append(xlsx.fmtI18n, "")
+		}
+		xlsx.fmtI18n[id] = numFmt
+	}
+	xlsx.styleNumberFormatCache = []*parsedNumberFormat{}
+	return nil
 }
 
 func (xlsx *xlsxStream) findZipHandler(path string) (*zip.File, error) {
@@ -251,8 +273,14 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 
 func (xlsx *xlsxStream) readStyles() error {
 	path := xlsx.zPathStyles
-	xlsx.styleNumberFormat = make(map[int]*parsedNumberFormat)
-	parsedNumberFormatCache := make(map[int]*parsedNumberFormat)
+	/*
+		numFmtCustom           []string
+		style2numFmtId         []int
+		styleNumberFormatCache []*parsedNumberFormat // style-id to parsedNumberFormat
+	*/
+	xlsx.numFmtCustom = make([]string, 0, 256)
+	xlsx.style2numFmtId = make([]int, 0, 32)
+	xlsx.styleNumberFormatCache = make([]*parsedNumberFormat, 0, 256)
 	z, err := xlsx.findZipHandler(path)
 	if nil != err {
 		// non-critical error: styles file not found
@@ -269,16 +297,64 @@ func (xlsx *xlsxStream) readStyles() error {
 	if err != nil {
 		return err
 	}
-	for numFmtId, numFmt := range builtInNumFmt {
-		parsedNumberFormatCache[numFmtId] = parseNumFmt(numFmt)
-	}
 	for _, numFmt := range styles.NumFmts.NumFmt {
-		parsedNumberFormatCache[numFmt.NumFmtId] = parseNumFmt(numFmt.FormatCode)
+		for len(xlsx.numFmtCustom) < numFmt.NumFmtId+1 {
+			xlsx.numFmtCustom = append(xlsx.numFmtCustom, "")
+		}
+		if len(numFmt.FormatCode) >= 2 && numFmt.FormatCode[0] == '[' && numFmt.FormatCode[1] == '$' {
+			strangeBlockEnd := strings.IndexRune(numFmt.FormatCode, ']')
+			if strangeBlockEnd >= 0 {
+				numFmt.FormatCode = numFmt.FormatCode[strangeBlockEnd+1:]
+			}
+		}
+		xlsx.numFmtCustom[numFmt.NumFmtId] = numFmt.FormatCode
 	}
 	for styleId, xf := range styles.CellXfs.Xf {
-		xlsx.styleNumberFormat[styleId] = parsedNumberFormatCache[xf.NumFmtId]
+		for len(xlsx.style2numFmtId) < styleId+1 {
+			xlsx.style2numFmtId = append(xlsx.style2numFmtId, 0)
+		}
+		xlsx.style2numFmtId[styleId] = xf.NumFmtId
 	}
 	return nil
+}
+
+// number formats are parsed only when needed
+// it guarantees that parser parameter i18n affects caches only while scanning table
+func (xlsx *xlsxStream) getParsedNumFmtByStyle(styleId int) *parsedNumberFormat {
+	if styleId >= 0 && styleId < len(xlsx.styleNumberFormatCache) { // if inside cached interval
+		if nil != xlsx.styleNumberFormatCache[styleId] { // search in cache
+			return xlsx.styleNumberFormatCache[styleId]
+		}
+	}
+	if len(xlsx.style2numFmtId) == 0 {
+		// maybe panic?
+		// we have to choose style from empty set
+		xlsx.style2numFmtId = []int{0} // make default style with "general" fmt
+	}
+	builtIn := xlsx.fmtI18n
+	if len(xlsx.numFmtCustom) == 0 { // numFmtCustom cannot be empty and must have at least len(builtin) items
+		xlsx.numFmtCustom = make([]string, len(builtIn))
+	}
+	if styleId < 0 || styleId >= len(xlsx.style2numFmtId) {
+		// maybe panic again?
+		// if outside valid id interval use first known style
+		return xlsx.getParsedNumFmtByStyle(0)
+	}
+	numFmtId := xlsx.style2numFmtId[styleId]
+	if numFmtId < 0 || numFmtId >= len(xlsx.numFmtCustom) {
+		numFmtId = 0
+	}
+	var numFmt string
+	if numFmtId < len(builtIn) {
+		numFmt = builtIn[numFmtId]
+	} else {
+		numFmt = xlsx.numFmtCustom[numFmtId]
+	}
+	for len(xlsx.styleNumberFormatCache) < styleId+1 {
+		xlsx.styleNumberFormatCache = append(xlsx.styleNumberFormatCache, nil)
+	}
+	xlsx.styleNumberFormatCache[styleId] = parseNumFmt(numFmt)
+	return xlsx.styleNumberFormatCache[styleId]
 }
 
 func (xlsx *xlsxStream) readSharedStrings() error {
@@ -446,7 +522,7 @@ func (xlsx *xlsxStream) scanInternal() (err error) {
 					if currentColumnNum < 1 {
 						panic(fmt.Sprintf("WTF i'm doing here? Cell have to been skipped in this condition! [file=%s sheet=%s at pos %d]", xlsx.zFileName, xlsx.sheets[xlsx.iteratorSheetId].path, xlsx.iteratorDecoder.InputOffset()))
 					}
-					parsedFormat := xlsx.styleNumberFormat[currentCellStyleId]
+					parsedFormat := xlsx.getParsedNumFmtByStyle(currentCellStyleId)
 					if nil == parsedFormat {
 						// style[#currentCellStyleId].numFmt is incorrect
 					} else {

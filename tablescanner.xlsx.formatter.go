@@ -6,6 +6,22 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
+)
+
+const (
+	MJD_0                    = float64(2400000.5)
+	nanosInADay              = float64((24 * time.Hour) / time.Nanosecond)
+	strCellTypeError         = "e"
+	strCellTypeString        = "s"
+	strCellTypeInline        = "inlineStr"
+	strCellTypeBool          = "b"
+	strCellTypeStringFormula = "str"
+	strCellTypeDate          = "d"
+	strCellTypeNumeric       = "n"
+	strCellTypeNumericAlt    = ""
+	maxNonScientificNumber   = 1e11
+	minNonScientificNumber   = 1e-9
 )
 
 type excelFormatter struct {
@@ -15,6 +31,39 @@ type excelFormatter struct {
 	decimalSeparator  string
 	trim              bool
 	date1904          bool
+}
+
+type parsedNumberFormat struct {
+	numFmt                        string
+	isTimeFormat                  bool
+	negativeFormatExpectsPositive bool
+	positiveFormat                *formatOptions
+	negativeFormat                *formatOptions
+	zeroFormat                    *formatOptions
+	textFormat                    *formatOptions
+	parseEncounteredError         *error
+}
+
+type formatOptions struct {
+	isTimeFormat        bool
+	showPercent         bool
+	fullFormatString    string
+	reducedFormatString string
+	prefix              string
+	suffix              string
+}
+
+var excel1900Epoc = time.Date(1899, time.December, 30, 0, 0, 0, 0, time.UTC)
+var excel1904Epoc = time.Date(1904, time.January, 1, 0, 0, 0, 0, time.UTC)
+
+var timeFormatCharacters = []string{"m", "d", "yy", "h", "m", "AM/PM", "A/P", "am/pm", "a/p", "r", "g", "e", "b1", "b2", "[hh]", "[h]", "[mm]", "[m]",
+	"s.0000", "s.000", "s.00", "s.0", "s", "[ss].0000", "[ss].000", "[ss].00", "[ss].0", "[ss]", "[s].0000", "[s].000", "[s].00", "[s].0", "[s]"}
+
+var formattingCharacters = []string{"0/", "#/", "?/", "E-", "E+", "e-", "e+", "0", "#", "?", ".", ",", "@", "*"}
+
+var fallbackErrorFormat = &formatOptions{
+	fullFormatString:    "general",
+	reducedFormatString: "general",
 }
 
 func newExcelFormatter() *excelFormatter {
@@ -47,89 +96,6 @@ func (conf *excelFormatter) SetDateFixedFormat(value string) {
 
 func (conf *excelFormatter) SetDecimalSeparator(value string) {
 	conf.decimalSeparator = value
-}
-
-type parsedNumberFormat struct {
-	numFmt                        string
-	isTimeFormat                  bool
-	negativeFormatExpectsPositive bool
-	positiveFormat                *formatOptions
-	negativeFormat                *formatOptions
-	zeroFormat                    *formatOptions
-	textFormat                    *formatOptions
-	parseEncounteredError         *error
-}
-
-const (
-	builtInNumFmtIndex_GENERAL = int(0)
-	builtInNumFmtIndex_INT     = int(1)
-	builtInNumFmtIndex_FLOAT   = int(2)
-	builtInNumFmtIndex_STRING  = int(49)
-	strCellTypeError           = "e"
-	strCellTypeString          = "s"
-	strCellTypeInline          = "inlineStr"
-	strCellTypeBool            = "b"
-	strCellTypeStringFormula   = "str"
-	strCellTypeDate            = "d"
-	strCellTypeNumeric         = "n"
-	strCellTypeNumericAlt      = ""
-	maxNonScientificNumber     = 1e11
-	minNonScientificNumber     = 1e-9
-)
-
-type formatOptions struct {
-	isTimeFormat        bool
-	showPercent         bool
-	fullFormatString    string
-	reducedFormatString string
-	prefix              string
-	suffix              string
-}
-
-var timeFormatCharacters = []string{"m", "d", "yy", "h", "m", "AM/PM", "A/P", "am/pm", "a/p", "r", "g", "e", "b1", "b2", "[hh]", "[h]", "[mm]", "[m]",
-	"s.0000", "s.000", "s.00", "s.0", "s", "[ss].0000", "[ss].000", "[ss].00", "[ss].0", "[ss]", "[s].0000", "[s].000", "[s].00", "[s].0", "[s]"}
-
-var formattingCharacters = []string{"0/", "#/", "?/", "E-", "E+", "e-", "e+", "0", "#", "?", ".", ",", "@", "*"}
-
-var fallbackErrorFormat = &formatOptions{
-	fullFormatString:    "general",
-	reducedFormatString: "general",
-}
-
-var builtInNumFmt = map[int]string{
-	0:  "general",
-	1:  "0",
-	2:  "0.00",
-	3:  "#,##0",
-	4:  "#,##0.00",
-	9:  "0%",
-	10: "0.00%",
-	11: "0.00e+00",
-	12: "# ?/?",
-	13: "# ??/??",
-	//14: "mm-dd-yy",
-	14: "dd.mm.yyyy", // russian local standart
-	15: "d-mmm-yy",
-	16: "d-mmm",
-	17: "mmm-yy",
-	18: "h:mm am/pm",
-	19: "h:mm:ss am/pm",
-	20: "h:mm",
-	21: "h:mm:ss",
-	22: "m/d/yy h:mm",
-	37: "#,##0 ;(#,##0)",
-	38: "#,##0 ;[red](#,##0)",
-	39: "#,##0.00;(#,##0.00)",
-	40: "#,##0.00;[red](#,##0.00)",
-	41: `_(* #,##0_);_(* \(#,##0\);_(* "-"_);_(@_)`,
-	42: `_("$"* #,##0_);_("$* \(#,##0\);_("$"* "-"_);_(@_)`,
-	43: `_(* #,##0.00_);_(* \(#,##0.00\);_(* "-"??_);_(@_)`,
-	44: `_("$"* #,##0.00_);_("$"* \(#,##0.00\);_("$"* "-"??_);_(@_)`,
-	45: "mm:ss",
-	46: "[h]:mm:ss",
-	47: "mmss.0",
-	48: "##0.0e+0",
-	49: "@",
 }
 
 func parseNumFmt(numFmt string) *parsedNumberFormat {
@@ -393,9 +359,9 @@ func (formatter *excelFormatter) internalFormatValue(cellValue string, cellType 
 		textFormat := fullFormat.textFormat
 		// This switch statement is only for String formats
 		switch textFormat.reducedFormatString {
-		case builtInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
+		case "general":
 			return cellValue, nil
-		case builtInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
+		case "@": // String is "@"
 			return textFormat.prefix + cellValue + textFormat.suffix, nil
 		case "":
 			// If cell is not "General" and there is not an "@" symbol in the format, then the cell's value is not
@@ -470,7 +436,7 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 	// However, at this time we fail to parse those formatting codes and they get replaced with "General"
 	var formattedNum string
 	switch numberFormat.reducedFormatString {
-	case builtInNumFmt[builtInNumFmtIndex_GENERAL]: // General is literally "general"
+	case "general":
 		// prefix, showPercent, and suffix cannot apply to the general format
 		// The logic for showing numbers when the format is "general" is much more complicated than the rest of these.
 		generalFormatted, err := formatter.generalNumericScientific(cellValue)
@@ -479,14 +445,14 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 		}
 		formatter.setDecimalSeparator(&generalFormatted)
 		return generalFormatted, nil
-	case builtInNumFmt[builtInNumFmtIndex_STRING]: // String is "@"
+	case "@": // String is "@"
 		formattedNum = cellValue
-	case builtInNumFmt[builtInNumFmtIndex_INT], "#,##0": // Int is "0"
+	case "0", "#,##0": // Int is "0"
 		// Previously this case would cast to int and print with %d, but that will not round the value correctly.
 		formattedNum = fmt.Sprintf("%.0f", floatVal)
 	case "0.0", "#,##0.0":
 		formattedNum = fmt.Sprintf("%.1f", floatVal)
-	case builtInNumFmt[builtInNumFmtIndex_FLOAT], "#,##0.00": // Float is "0.00"
+	case "0.00", "#,##0.00": // Float is "0.00"
 		formattedNum = fmt.Sprintf("%.2f", floatVal)
 	case "0.000", "#,##0.000":
 		formattedNum = fmt.Sprintf("%.3f", floatVal)
@@ -495,7 +461,6 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 	case "0.00e+00", "##0.0e+0":
 		if formatter.allowScientific {
 			formattedNum = fmt.Sprintf("%e", floatVal)
-
 		} else {
 			return rawValue, nil
 		}
@@ -560,23 +525,29 @@ func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumbe
 	// First we convert them to arbitrary characters unused in Excel Date formats, and then at the end,
 	// turn them to what they should actually be.
 	// Based off: http://www.ozgrid.com/Excel/CustomFormats.htm
-	replacements := []struct{ xltime, gotime string }{
-		{"yyyy", "2006"},
-		{"yy", "06"},
-		{"mmmm", "%%%%"},
-		{"dddd", "&&&&"},
-		{"dd", "02"},
-		{"d", "2"},
-		{"mmm", "Jan"},
-		{"mmss", "0405"},
-		{"ss", "05"},
-		{"mm:", "04:"},
-		{":mm", ":04"},
-		{"mm", "01"},
-		{"am/pm", "pm"},
-		{"m/", "1/"},
-		{"%%%%", "January"},
-		{"&&&&", "Monday"},
+	replacements := []struct {
+		xltime string
+		gotime string
+		limit  int
+	}{
+		{"yyyy", "2006", 1},
+		{"yy", "06", 1},
+		{"mmmm", "%%%%", 1},
+		{"dddd", "&&&&", 1},
+		{"dd", "02", 1},
+		{"d", "2", 1},
+		{"mmm", "Jan", 1},
+		{"mmss", "0405", 1},
+		{"ss", "05", 1},
+		{"mm:", "04:", 1},
+		{":mm", ":04", 1},
+		{"mm", "01", 1},
+		{"am/pm", "pm", 1},
+		{"m/", "1/", 1},
+		{"%%%%", "January", 1},
+		{"&&&&", "Monday", 1},
+		{"\\ ", " ", -1},
+		{"\\,", ",", -1},
 	}
 	// It is the presence of the "am/pm" indicator that determins
 	// if this is a 12 hour or 24 hours time format, not the
@@ -589,7 +560,7 @@ func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumbe
 		format = strings.Replace(format, "h", "15", 1)
 	}
 	for _, repl := range replacements {
-		format = strings.Replace(format, repl.xltime, repl.gotime, 1)
+		format = strings.Replace(format, repl.xltime, repl.gotime, repl.limit)
 	}
 	// If the hour is optional, strip it out, along with the
 	// possible dangling colon that would remain.
@@ -679,4 +650,98 @@ func isTimeFormat(format string) bool {
 // hours form.
 func is12HourTime(format string) bool {
 	return strings.Contains(format, "am/pm") || strings.Contains(format, "AM/PM") || strings.Contains(format, "a/p") || strings.Contains(format, "A/P")
+}
+
+func shiftJulianToNoon(julianDays, julianFraction float64) (float64, float64) {
+	switch {
+	case -0.5 < julianFraction && julianFraction < 0.5:
+		julianFraction += 0.5
+	case julianFraction >= 0.5:
+		julianDays += 1
+		julianFraction -= 0.5
+	case julianFraction <= -0.5:
+		julianDays -= 1
+		julianFraction += 1.5
+	}
+	return julianDays, julianFraction
+}
+
+// Return the integer values for hour, minutes, seconds and
+// nanoseconds that comprised a given fraction of a day.
+// values would round to 1 us.
+func fractionOfADay(fraction float64) (hours, minutes, seconds, nanoseconds int) {
+
+	const (
+		c1us  = 1e3
+		c1s   = 1e9
+		c1day = 24 * 60 * 60 * c1s
+	)
+
+	frac := int64(c1day*fraction + c1us/2)
+	nanoseconds = int((frac%c1s)/c1us) * c1us
+	frac /= c1s
+	seconds = int(frac % 60)
+	frac /= 60
+	minutes = int(frac % 60)
+	hours = int(frac / 60)
+	return
+}
+
+func julianDateToGregorianTime(part1, part2 float64) time.Time {
+	part1I, part1F := math.Modf(part1)
+	part2I, part2F := math.Modf(part2)
+	julianDays := part1I + part2I
+	julianFraction := part1F + part2F
+	julianDays, julianFraction = shiftJulianToNoon(julianDays, julianFraction)
+	day, month, year := doTheFliegelAndVanFlandernAlgorithm(int(julianDays))
+	hours, minutes, seconds, nanoseconds := fractionOfADay(julianFraction)
+	return time.Date(year, time.Month(month), day, hours, minutes, seconds, nanoseconds, time.UTC)
+}
+
+// By this point generations of programmers have repeated the
+// algorithm sent to the editor of "Communications of the ACM" in 1968
+// (published in CACM, volume 11, number 10, October 1968, p.657).
+// None of those programmers seems to have found it necessary to
+// explain the constants or variable names set out by Henry F. Fliegel
+// and Thomas C. Van Flandern.  Maybe one day I'll buy that jounal and
+// expand an explanation here - that day is not today.
+func doTheFliegelAndVanFlandernAlgorithm(jd int) (day, month, year int) {
+	l := jd + 68569
+	n := (4 * l) / 146097
+	l = l - (146097*n+3)/4
+	i := (4000 * (l + 1)) / 1461001
+	l = l - (1461*i)/4 + 31
+	j := (80 * l) / 2447
+	d := l - (2447*j)/80
+	l = j / 11
+	m := j + 2 - (12 * l)
+	y := 100*(n-49) + i + l
+	return d, m, y
+}
+
+// Convert an excelTime representation (stored as a floating point number) to a time.Time.
+func TimeFromExcelTime(excelTime float64, date1904 bool) time.Time {
+	var date time.Time
+	var wholeDaysPart = int(excelTime)
+	// Excel uses Julian dates prior to March 1st 1900, and
+	// Gregorian thereafter.
+	if wholeDaysPart <= 61 {
+		const OFFSET1900 = 15018.0
+		const OFFSET1904 = 16480.0
+		var date time.Time
+		if date1904 {
+			date = julianDateToGregorianTime(MJD_0, excelTime+OFFSET1904)
+		} else {
+			date = julianDateToGregorianTime(MJD_0, excelTime+OFFSET1900)
+		}
+		return date
+	}
+	var floatPart = excelTime - float64(wholeDaysPart)
+	if date1904 {
+		date = excel1904Epoc
+	} else {
+		date = excel1900Epoc
+	}
+	durationPart := time.Duration(nanosInADay * floatPart)
+	return date.AddDate(0, 0, wholeDaysPart).Add(durationPart)
 }
