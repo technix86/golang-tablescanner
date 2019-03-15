@@ -32,6 +32,7 @@ type IExcelFormatter interface {
 	DenyScientific()
 	SetDateFixedFormat(value string)
 	SetDecimalSeparator(value string)
+	SetThousandSeparator(value string)
 	SetTrimOn()
 	SetTrimOff()
 	FormatValue(cellValue string, cellType string, fullFormat *parsedNumberFormat) (string, error)

@@ -109,6 +109,10 @@ func (formatter *excelFormatter) SetDecimalSeparator(value string) {
 	formatter.decimalSeparator = value
 }
 
+func (formatter *excelFormatter) SetThousandSeparator(value string) {
+	formatter.thousandSeparator = value
+}
+
 func parseNumFmt(numFmt string) *parsedNumberFormat {
 	if "" == numFmt {
 		numFmt = "general"
