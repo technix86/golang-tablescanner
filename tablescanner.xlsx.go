@@ -12,6 +12,7 @@ import (
 
 type xlsxStream struct {
 	formatter              excelFormatter
+	i18n                   *tI18n   // reference to selected i18n config
 	fmtI18n                []string // excel built-in number formats depending on system locale
 	sheets                 []TableSheetInfo
 	sheetSelected          int                  // default-opening sheet id
@@ -117,7 +118,7 @@ type xmlNumFmt struct {
 func newXLSXStream(fileName string) (error, ITableDocumentScanner) {
 	var err error
 	xlsx := &xlsxStream{zFileName: fileName}
-	err = xlsx.SetI18nDefaults("en")
+	err = xlsx.SetI18n("en")
 	if nil != err {
 		return err, nil
 	}
@@ -160,17 +161,19 @@ func (xlsx *xlsxStream) Formatter() IExcelFormatter {
 	return &xlsx.formatter
 }
 
-func (xlsx *xlsxStream) SetI18nDefaults(code string) error {
+func (xlsx *xlsxStream) SetI18n(code string) error {
 	if _, ok := numFmtI18n[code]; !ok {
 		return fmt.Errorf("Unknown i18n[%s]", code)
 	}
 	xlsx.fmtI18n = []string{}
-	for id, numFmt := range numFmtI18n[code].numFmtDefaults {
+	for id, numFmt := range numFmtI18n[strings.ToLower(code)].numFmtDefaults {
 		for len(xlsx.fmtI18n) < id+1 {
 			xlsx.fmtI18n = append(xlsx.fmtI18n, "")
 		}
 		xlsx.fmtI18n[id] = numFmt
 	}
+	xlsx.i18n = numFmtI18n[code]
+	xlsx.formatter.setI18n(xlsx.i18n)
 	xlsx.styleNumberFormatCache = []*parsedNumberFormat{}
 	return nil
 }
@@ -246,7 +249,7 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 		return err
 	}
 	xlsx.formatter = *newExcelFormatter()
-	xlsx.formatter.date1904 = workbook.WorkbookPr.Date1904
+	xlsx.formatter.setDate1904(workbook.WorkbookPr.Date1904)
 	xlsx.sheets = make([]TableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {
 		// undefined path isn't critical, broken sheet can be softly ignored while fetching
@@ -301,12 +304,14 @@ func (xlsx *xlsxStream) readStyles() error {
 		for len(xlsx.numFmtCustom) < numFmt.NumFmtId+1 {
 			xlsx.numFmtCustom = append(xlsx.numFmtCustom, "")
 		}
-		if len(numFmt.FormatCode) >= 2 && numFmt.FormatCode[0] == '[' && numFmt.FormatCode[1] == '$' {
-			strangeBlockEnd := strings.IndexRune(numFmt.FormatCode, ']')
-			if strangeBlockEnd >= 0 {
-				numFmt.FormatCode = numFmt.FormatCode[strangeBlockEnd+1:]
+		/*
+			if len(numFmt.FormatCode) >= 2 && numFmt.FormatCode[0] == '[' && numFmt.FormatCode[1] == '$' {
+				SystemRefEnd := strings.IndexRune(numFmt.FormatCode, ']')
+				if SystemRefEnd >= 0 {
+					numFmt.FormatCode = numFmt.FormatCode[0:SystemRefEnd+1]
+				}
 			}
-		}
+		*/
 		xlsx.numFmtCustom[numFmt.NumFmtId] = numFmt.FormatCode
 	}
 	for styleId, xf := range styles.CellXfs.Xf {
@@ -331,9 +336,8 @@ func (xlsx *xlsxStream) getParsedNumFmtByStyle(styleId int) *parsedNumberFormat 
 		// we have to choose style from empty set
 		xlsx.style2numFmtId = []int{0} // make default style with "general" fmt
 	}
-	builtIn := xlsx.fmtI18n
 	if len(xlsx.numFmtCustom) == 0 { // numFmtCustom cannot be empty and must have at least len(builtin) items
-		xlsx.numFmtCustom = make([]string, len(builtIn))
+		xlsx.numFmtCustom = make([]string, len(xlsx.fmtI18n))
 	}
 	if styleId < 0 || styleId >= len(xlsx.style2numFmtId) {
 		// maybe panic again?
@@ -345,13 +349,23 @@ func (xlsx *xlsxStream) getParsedNumFmtByStyle(styleId int) *parsedNumberFormat 
 		numFmtId = 0
 	}
 	var numFmt string
-	if numFmtId < len(builtIn) {
-		numFmt = builtIn[numFmtId]
+	if numFmtId < len(xlsx.fmtI18n) && "" == xlsx.numFmtCustom[numFmtId] {
+		numFmt = xlsx.fmtI18n[numFmtId]
 	} else {
 		numFmt = xlsx.numFmtCustom[numFmtId]
 	}
 	for len(xlsx.styleNumberFormatCache) < styleId+1 {
 		xlsx.styleNumberFormatCache = append(xlsx.styleNumberFormatCache, nil)
+	}
+	if len(numFmt) >= 2 && numFmt[0] == '[' && numFmt[1] == '$' {
+		SystemRefEnd := strings.IndexRune(numFmt, ']')
+		if SystemRefEnd >= 0 {
+			if systemFmt, found := xlsx.i18n.numFmtSystem[numFmt[0:SystemRefEnd+1]]; found {
+				numFmt = systemFmt
+			} else {
+				numFmt = numFmt[SystemRefEnd+1:]
+			}
+		}
 	}
 	xlsx.styleNumberFormatCache[styleId] = parseNumFmt(numFmt)
 	return xlsx.styleNumberFormatCache[styleId]

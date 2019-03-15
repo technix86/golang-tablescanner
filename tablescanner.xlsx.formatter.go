@@ -25,10 +25,12 @@ const (
 )
 
 type excelFormatter struct {
+	i18n              *tI18n
 	discardFormatting bool
 	allowScientific   bool
 	dateFixedFormat   string
 	decimalSeparator  string
+	thousandSeparator string
 	trim              bool
 	date1904          bool
 }
@@ -57,7 +59,7 @@ var excel1900Epoc = time.Date(1899, time.December, 30, 0, 0, 0, 0, time.UTC)
 var excel1904Epoc = time.Date(1904, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 var timeFormatCharacters = []string{"m", "d", "yy", "h", "m", "AM/PM", "A/P", "am/pm", "a/p", "r", "g", "e", "b1", "b2", "[hh]", "[h]", "[mm]", "[m]",
-	"s.0000", "s.000", "s.00", "s.0", "s", "[ss].0000", "[ss].000", "[ss].00", "[ss].0", "[ss]", "[s].0000", "[s].000", "[s].00", "[s].0", "[s]"}
+	"s.0000", "s.000", "s.00", "s.0", "s", "[ss].0000", "[ss].000", "[ss].00", "[ss].0", "[ss]", "[s].0000", "[s].000", "[s].00", "[s].0", "[s]", "г", "г."}
 
 var formattingCharacters = []string{"0/", "#/", "?/", "E-", "E+", "e-", "e+", "0", "#", "?", ".", ",", "@", "*"}
 
@@ -67,35 +69,44 @@ var fallbackErrorFormat = &formatOptions{
 }
 
 func newExcelFormatter() *excelFormatter {
-	return &excelFormatter{
-		decimalSeparator: ";",
+	return &excelFormatter{}
+}
+func (formatter *excelFormatter) setDate1904(date1904 bool) {
+	formatter.date1904 = date1904
+}
+func (formatter *excelFormatter) setI18n(i18n *tI18n) {
+	formatter.i18n = i18n
+	formatter.decimalSeparator = i18n.decimalSeparator
+	formatter.thousandSeparator = i18n.thousandSeparator
+}
+
+func (formatter *excelFormatter) DisableFormatting() {
+	formatter.discardFormatting = true
+}
+func (formatter *excelFormatter) EnableFormatting() {
+	formatter.discardFormatting = false
+}
+func (formatter *excelFormatter) AllowScientific() {
+	formatter.allowScientific = true
+}
+func (formatter *excelFormatter) DenyScientific() {
+	formatter.allowScientific = false
+}
+func (formatter *excelFormatter) SetTrimOn() {
+	formatter.trim = true
+}
+func (formatter *excelFormatter) SetTrimOff() {
+	formatter.trim = false
+}
+func (formatter *excelFormatter) SetDateFixedFormat(value string) {
+	formatter.dateFixedFormat = value
+}
+
+func (formatter *excelFormatter) SetDecimalSeparator(value string) {
+	if value == "" {
+		value = formatter.i18n.decimalSeparator
 	}
-}
-
-func (conf *excelFormatter) DisableFormatting() {
-	conf.discardFormatting = true
-}
-func (conf *excelFormatter) EnableFormatting() {
-	conf.discardFormatting = false
-}
-func (conf *excelFormatter) AllowScientific() {
-	conf.allowScientific = true
-}
-func (conf *excelFormatter) DenyScientific() {
-	conf.allowScientific = false
-}
-func (conf *excelFormatter) SetTrimOn() {
-	conf.trim = true
-}
-func (conf *excelFormatter) SetTrimOff() {
-	conf.trim = false
-}
-func (conf *excelFormatter) SetDateFixedFormat(value string) {
-	conf.dateFixedFormat = value
-}
-
-func (conf *excelFormatter) SetDecimalSeparator(value string) {
-	conf.decimalSeparator = value
+	formatter.decimalSeparator = value
 }
 
 func parseNumFmt(numFmt string) *parsedNumberFormat {
@@ -275,6 +286,9 @@ func parseNumberFormatSection(fullFormat string) (*formatOptions, error) {
 		return nil, errors.New("invalid or unsupported format string")
 	}
 
+	if -1 != strings.IndexRune(reducedFormat, ';') {
+		reducedFormat = reducedFormat[0:strings.IndexRune(reducedFormat, ';')]
+	}
 	return &formatOptions{
 		fullFormatString:    fullFormat,
 		isTimeFormat:        false,
@@ -443,25 +457,52 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 		if err != nil {
 			return rawValue, nil
 		}
-		formatter.setDecimalSeparator(&generalFormatted)
+		formatter.setSeparators(&generalFormatted, formatter.decimalSeparator, "")
 		return generalFormatted, nil
 	case "@": // String is "@"
 		formattedNum = cellValue
-	case "0", "#,##0": // Int is "0"
-		// Previously this case would cast to int and print with %d, but that will not round the value correctly.
+	case "0":
 		formattedNum = fmt.Sprintf("%.0f", floatVal)
-	case "0.0", "#,##0.0":
+	case "#,##0":
+		formattedNum = fmt.Sprintf("%.0f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "###0.0", "0.0":
 		formattedNum = fmt.Sprintf("%.1f", floatVal)
-	case "0.00", "#,##0.00": // Float is "0.00"
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "###0.00", "0.00":
 		formattedNum = fmt.Sprintf("%.2f", floatVal)
-	case "0.000", "#,##0.000":
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "###0.000", "0.000":
 		formattedNum = fmt.Sprintf("%.3f", floatVal)
-	case "0.0000", "#,##0.0000":
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "###0.0000", "0.0000":
 		formattedNum = fmt.Sprintf("%.4f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "#,##0.0":
+		formattedNum = fmt.Sprintf("%.1f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+	case "#,##0.00": // Float is "0.00"
+		formattedNum = fmt.Sprintf("%.2f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+	case "#,##0.000":
+		formattedNum = fmt.Sprintf("%.3f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+	case "#,##0.0000":
+		formattedNum = fmt.Sprintf("%.4f", floatVal)
+		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "0.00e+00", "##0.0e+0":
-		if formatter.allowScientific {
-			formattedNum = fmt.Sprintf("%e", floatVal)
+		digits := strings.IndexRune(numberFormat.reducedFormatString, '+')
+		if -1 == digits {
+			digits = 1
 		} else {
+			digits = 2
+		}
+		if formatter.allowScientific {
+			formattedNum := fmt.Sprintf("%."+strconv.Itoa(digits)+"e", floatVal)
+			formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+			return formattedNum, nil
+		} else {
+			formatter.setSeparators(&rawValue, formatter.decimalSeparator, "")
 			return rawValue, nil
 		}
 	case "":
@@ -469,14 +510,26 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 	default:
 		return rawValue, nil
 	}
-	formatter.setDecimalSeparator(&formattedNum)
 	return numberFormat.prefix + formattedNum + numberFormat.suffix, nil
 }
 
-func (formatter *excelFormatter) setDecimalSeparator(renderedNumber *string) {
-	if len(formatter.decimalSeparator) > 0 && formatter.decimalSeparator != "." {
-		*renderedNumber = strings.Replace(*renderedNumber, ".", string(formatter.decimalSeparator), -1)
+func (formatter *excelFormatter) setSeparators(renderedNumber *string, decimalSeparator string, thousandSeparator string) {
+	var signLen int
+	var fracPosition int
+	fracPosition = strings.IndexRune(*renderedNumber, '.')
+	if -1 == fracPosition {
+		fracPosition = len(*renderedNumber)
 	}
+	if len(*renderedNumber) > 0 && (*renderedNumber)[0] == '-' {
+		signLen = 1
+	}
+	for i := fracPosition - 3; i > signLen; i -= 3 {
+		*renderedNumber = (*renderedNumber)[0:i] + "#" + (*renderedNumber)[i:]
+	}
+	if len(decimalSeparator) > 0 && decimalSeparator != "." {
+		*renderedNumber = strings.Replace(*renderedNumber, ".", decimalSeparator, -1)
+	}
+	*renderedNumber = strings.Replace(*renderedNumber, "#", thousandSeparator, -1)
 	return
 }
 
@@ -532,8 +585,11 @@ func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumbe
 	}{
 		{"yyyy", "2006", 1},
 		{"yy", "06", 1},
+		{"mmmmm", "%%%%%", 1},
 		{"mmmm", "%%%%", 1},
+		{"mmm", "%%%", 1},
 		{"dddd", "&&&&", 1},
+		{"ddd", "&&&", 1},
 		{"dd", "02", 1},
 		{"d", "2", 1},
 		{"mmm", "Jan", 1},
@@ -544,8 +600,9 @@ func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumbe
 		{"mm", "01", 1},
 		{"am/pm", "pm", 1},
 		{"m/", "1/", 1},
-		{"%%%%", "January", 1},
-		{"&&&&", "Monday", 1},
+		//{"%%%%", "January", 1},
+		//{"&&&&", "Monday", 1},
+		//{"&&&", "Mon", 1},
 		{"\\ ", " ", -1},
 		{"\\,", ",", -1},
 	}
@@ -572,6 +629,20 @@ func (formatter *excelFormatter) parseTime(value string, fullFormat *parsedNumbe
 	} else {
 		format = strings.Replace(format, "[3]", "3", 1)
 		format = strings.Replace(format, "[15]", "15", 1)
+	}
+	weekdayId := int(val.Weekday())
+	monthId := int(val.Month())
+	for _, repl := range []struct {
+		macro string
+		value string
+	}{
+		{"%%%%%", formatter.i18n.monthNamesPasv[monthId]},
+		{"%%%%", formatter.i18n.monthNames[monthId]},
+		{"%%%", formatter.i18n.monthNames3[monthId]},
+		{"&&&&", formatter.i18n.weekdayNames[weekdayId]},
+		{"&&&", formatter.i18n.weekdayNames3[weekdayId]},
+	} {
+		format = strings.Replace(format, repl.macro, repl.value, -1)
 	}
 	return val.Format(format), nil
 }
