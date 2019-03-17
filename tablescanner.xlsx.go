@@ -168,10 +168,6 @@ func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }
 
-func nowarnCloseCloser(rc io.Closer) {
-	_ = rc.Close()
-}
-
 func (xlsx *xlsxStream) Formatter() IExcelFormatter {
 	return &xlsx.formatter
 }
@@ -263,7 +259,7 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	if err != nil {
 		return err
 	}
-	xlsx.formatter = *newExcelFormatter()
+	xlsx.formatter = *newExcelFormatter("en")
 	xlsx.formatter.setDate1904(workbook.WorkbookPr.Date1904)
 	xlsx.sheets = make([]*xlsxTableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {

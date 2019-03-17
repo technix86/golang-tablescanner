@@ -2,14 +2,15 @@ package tablescanner
 
 import (
 	"fmt"
-	exls "github.com/extrame/xls"
+	exls "github.com/technix86/xls"
 	"io"
 	"os"
 )
 
 type xlsTableSheetInfo struct {
-	Name  string
-	sheet *exls.WorkSheet
+	Name      string
+	HideLevel TSheetHideLevel
+	sheet     *exls.WorkSheet
 }
 
 type xlsHandle struct {
@@ -29,16 +30,25 @@ func newXLSStream(fileName string) (error, ITableDocumentScanner) {
 	xls := &xlsHandle{}
 	xls.workbook, xls.closer, err = exls.OpenWithCloser(fileName, "utf-8")
 	err = xls.SetI18n("en")
-	if err == nil {
+	if err != nil {
 		return err, nil
 	}
 	numSheets := xls.workbook.NumSheets()
 	xls.sheets = make([]*xlsTableSheetInfo, numSheets)
+	foundSelected := false
 	for i := 0; i < numSheets; i++ {
 		xsheet := xls.workbook.GetSheet(i)
-		xls.sheets[i] = &xlsTableSheetInfo{Name: xsheet.Name, sheet: xsheet}
+		xls.sheets[i] = &xlsTableSheetInfo{Name: xsheet.Name, sheet: xsheet, HideLevel: TSheetHideLevel(xsheet.Visibility)}
+		if xsheet.Selected {
+			if foundSelected {
+				_,_=os.Stderr.WriteString(fmt.Sprintf("WARNING: more than one `selected` sheets found in file %s\n", fileName))
+			} else {
+				xls.sheetSelected = i
+				xls.iteratorSheetId = i
+				foundSelected = true
+			}
+		}
 	}
-	panic("@todo: search for current sheet selected")
 	return nil, xls
 }
 
@@ -47,7 +57,7 @@ func (sheet *xlsTableSheetInfo) GetName() string {
 }
 
 func (sheet *xlsTableSheetInfo) GetHideLevel() TSheetHideLevel {
-	return TableSheetVisible
+	return sheet.HideLevel
 }
 
 func (xls *xlsHandle) Close() error {
@@ -55,13 +65,13 @@ func (xls *xlsHandle) Close() error {
 }
 
 func (xls *xlsHandle) SetI18n(string) error {
-	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!")
+	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!\n")
 	return nil
 }
 
 func (xls *xlsHandle) Formatter() IExcelFormatter {
-	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!")
-	return newExcelFormatter()
+	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!\n")
+	return newExcelFormatter("en")
 }
 
 func (xls *xlsHandle) GetSheets() []ITableSheetInfo {
@@ -103,14 +113,14 @@ func (xls *xlsHandle) GetScanned() []string {
 
 func (xls *xlsHandle) scanInternal() error {
 	ROWSTARTING := 0
-	COLSTARTING := 1
+	COLSTARTING := 0
 	if xls.iteratorSheetId < 0 || xls.iteratorSheetId > len(xls.sheets) {
 		return fmt.Errorf("sheet #%d not found", xls.iteratorSheetId)
 	}
 	if xls.iteratorRowNum < 0 {
 		panic("xls.iteratorRowNum must be >= 1")
 	}
-	if xls.iteratorRowNum > int(xls.sheets[xls.iteratorSheetId].sheet.MaxRow) {
+	if xls.iteratorRowNum > int(xls.sheets[xls.iteratorSheetId].sheet.MaxRow)+1 {
 		return io.EOF
 	}
 	row := xls.sheets[xls.iteratorSheetId].sheet.Row(xls.iteratorRowNum - 1 + ROWSTARTING)
@@ -127,7 +137,7 @@ func (xls *xlsHandle) scanInternal() error {
 	colLast -= COLSTARTING
 	xls.iteratorScannedData = make([]string, colLast+1, colLast+1)
 	for i := colFirst; i < colLast; i++ {
-		xls.iteratorScannedData[i] = row.Col(i)
+		xls.iteratorScannedData[i] = row.ColExact(i)
 	}
 	return nil
 }

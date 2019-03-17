@@ -68,8 +68,10 @@ var fallbackErrorFormat = &formatOptions{
 	reducedFormatString: "general",
 }
 
-func newExcelFormatter() *excelFormatter {
-	return &excelFormatter{}
+func newExcelFormatter(i18n string) *excelFormatter {
+	result := &excelFormatter{}
+	result.setI18n(numFmtI18n[i18n])
+	return result
 }
 func (formatter *excelFormatter) setDate1904(date1904 bool) {
 	formatter.date1904 = date1904
@@ -104,7 +106,11 @@ func (formatter *excelFormatter) SetDateFixedFormat(value string) {
 
 func (formatter *excelFormatter) SetDecimalSeparator(value string) {
 	if value == "" {
-		value = formatter.i18n.decimalSeparator
+		if nil == formatter.i18n {
+			value = "."
+		} else {
+			value = formatter.i18n.decimalSeparator
+		}
 	}
 	formatter.decimalSeparator = value
 }
