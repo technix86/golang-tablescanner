@@ -12,17 +12,17 @@ import (
 	"io"
 )
 
+type TSheetHideLevel byte
+
 const (
-	TableSheetVisible    = 0
-	TableSheetHidden     = 1
-	TableSheetVeryHidden = 2
+	TableSheetVisible    TSheetHideLevel = 0
+	TableSheetHidden     TSheetHideLevel = 1
+	TableSheetVeryHidden TSheetHideLevel = 2
 )
 
-type TableSheetInfo struct {
-	Name      string
-	HideLevel byte
-	path      string
-	rId       string
+type ITableSheetInfo interface {
+	GetName() string
+	GetHideLevel() TSheetHideLevel
 }
 
 type IExcelFormatter interface {
@@ -42,7 +42,7 @@ type ITableDocumentScanner interface {
 	io.Closer
 	SetI18n(string) error
 	Formatter() IExcelFormatter
-	GetSheets() []TableSheetInfo
+	GetSheets() []ITableSheetInfo
 	GetCurrentSheetId() int
 	SetSheetId(id int) error
 	Scan() error
@@ -52,4 +52,8 @@ type ITableDocumentScanner interface {
 
 func NewXLSXStream(fileName string) (error, ITableDocumentScanner) {
 	return newXLSXStream(fileName)
+}
+
+func NewXLSStream(fileName string) (error, ITableDocumentScanner) {
+	return newXLSStream(fileName)
 }

@@ -10,11 +10,18 @@ import (
 	"strings"
 )
 
+type xlsxTableSheetInfo struct {
+	Name      string
+	HideLevel TSheetHideLevel
+	path      string
+	rId       string
+}
+
 type xlsxStream struct {
 	formatter              excelFormatter
 	i18n                   *tI18n   // reference to selected i18n config
 	fmtI18n                []string // excel built-in number formats depending on system locale
-	sheets                 []TableSheetInfo
+	sheets                 []*xlsxTableSheetInfo
 	sheetSelected          int                  // default-opening sheet id
 	iteratorLastError      error                // error which caused last Scan() failed
 	iteratorRowNum         int                  // row number that Scan() implies
@@ -149,6 +156,14 @@ func newXLSXStream(fileName string) (error, ITableDocumentScanner) {
 	return nil, xlsx
 }
 
+func (sheet *xlsxTableSheetInfo) GetName() string {
+	return sheet.Name
+}
+
+func (sheet *xlsxTableSheetInfo) GetHideLevel() TSheetHideLevel {
+	return sheet.HideLevel
+}
+
 func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }
@@ -250,10 +265,10 @@ func (xlsx *xlsxStream) readWorkbook(path string) error {
 	}
 	xlsx.formatter = *newExcelFormatter()
 	xlsx.formatter.setDate1904(workbook.WorkbookPr.Date1904)
-	xlsx.sheets = make([]TableSheetInfo, len(workbook.Sheets.Sheet))
+	xlsx.sheets = make([]*xlsxTableSheetInfo, len(workbook.Sheets.Sheet))
 	for idx, sheet := range workbook.Sheets.Sheet {
 		// undefined path isn't critical, broken sheet can be softly ignored while fetching
-		xlsx.sheets[idx] = TableSheetInfo{Name: sheet.Name, HideLevel: TableSheetVisible, path: xlsx.relations[sheet.Id], rId: sheet.Id}
+		xlsx.sheets[idx] = &xlsxTableSheetInfo{Name: sheet.Name, HideLevel: TableSheetVisible, path: xlsx.relations[sheet.Id], rId: sheet.Id}
 		if sheet.State == sheetStateHidden {
 			xlsx.sheets[idx].HideLevel = TableSheetHidden
 		}
@@ -424,11 +439,14 @@ func (xlsx *xlsxStream) SwitchSheet(id int) error {
 	return nil
 }
 
-func (xlsx *xlsxStream) GetSheets() []TableSheetInfo {
-	result := make([]TableSheetInfo, len(xlsx.sheets))
-	copy(result, xlsx.sheets)
-	return result
+func (xlsx *xlsxStream) GetSheets() []ITableSheetInfo {
+	res := make([]ITableSheetInfo, len(xlsx.sheets))
+	for i, sheet := range xlsx.sheets {
+		res[i] = sheet
+	}
+	return res
 }
+
 func (xlsx *xlsxStream) GetCurrentSheetId() int {
 	return xlsx.iteratorSheetId
 }
