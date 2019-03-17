@@ -170,7 +170,7 @@ var numFmtI18n = map[string]*tI18n{
 	},
 	"ru": {
 		decimalSeparator:  ",",
-		thousandSeparator: " ",
+		thousandSeparator: "\xC2\xA0",
 		monthNames: [13]string{
 			"",
 			"Январь",
@@ -254,8 +254,8 @@ var numFmtI18n = map[string]*tI18n{
 			12: "#\" \"?/?",
 			13: "# ??/??",
 			14: "dd.mm.yyyy",
-			15: "d.mmm.yy",
-			16: "d.mmm",
+			15: "dd.mmm.yy",
+			16: "dd.mmm",
 			17: "mmm.yy",
 			18: "h:mm am/pm",
 			19: "h:mm:ss am/pm",

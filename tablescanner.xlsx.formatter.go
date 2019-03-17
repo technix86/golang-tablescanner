@@ -461,39 +461,40 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 		if err != nil {
 			return rawValue, nil
 		}
-		formatter.setSeparators(&generalFormatted, formatter.decimalSeparator, "")
+		formatter.applySeparators(&generalFormatted, formatter.decimalSeparator, "")
 		return generalFormatted, nil
 	case "@": // String is "@"
 		formattedNum = cellValue
 	case "0":
 		formattedNum = fmt.Sprintf("%.0f", floatVal)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "0.0":
+		formattedNum = fmt.Sprintf("%.1f", floatVal)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "0.00":
+		formattedNum = fmt.Sprintf("%.2f", floatVal)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "0.000":
+		formattedNum = fmt.Sprintf("%.3f", floatVal)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
+	case "0.0000":
+		formattedNum = fmt.Sprintf("%.4f", floatVal)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
 	case "#,##0":
 		formattedNum = fmt.Sprintf("%.0f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
-	case "###0.0", "0.0":
-		formattedNum = fmt.Sprintf("%.1f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
-	case "###0.00", "0.00":
-		formattedNum = fmt.Sprintf("%.2f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
-	case "###0.000", "0.000":
-		formattedNum = fmt.Sprintf("%.3f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
-	case "###0.0000", "0.0000":
-		formattedNum = fmt.Sprintf("%.4f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "#,##0.0":
 		formattedNum = fmt.Sprintf("%.1f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "#,##0.00": // Float is "0.00"
 		formattedNum = fmt.Sprintf("%.2f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "#,##0.000":
 		formattedNum = fmt.Sprintf("%.3f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "#,##0.0000":
 		formattedNum = fmt.Sprintf("%.4f", floatVal)
-		formatter.setSeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
+		formatter.applySeparators(&formattedNum, formatter.decimalSeparator, formatter.thousandSeparator)
 	case "0.00e+00", "##0.0e+0":
 		digits := strings.IndexRune(numberFormat.reducedFormatString, '+')
 		if -1 == digits {
@@ -503,10 +504,10 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 		}
 		if formatter.allowScientific {
 			formattedNum := fmt.Sprintf("%."+strconv.Itoa(digits)+"e", floatVal)
-			formatter.setSeparators(&formattedNum, formatter.decimalSeparator, "")
+			formatter.applySeparators(&formattedNum, formatter.decimalSeparator, "")
 			return formattedNum, nil
 		} else {
-			formatter.setSeparators(&rawValue, formatter.decimalSeparator, "")
+			formatter.applySeparators(&rawValue, formatter.decimalSeparator, "")
 			return rawValue, nil
 		}
 	case "":
@@ -517,7 +518,7 @@ func (formatter *excelFormatter) formatNumericCell(cellValue string, fullFormat 
 	return numberFormat.prefix + formattedNum + numberFormat.suffix, nil
 }
 
-func (formatter *excelFormatter) setSeparators(renderedNumber *string, decimalSeparator string, thousandSeparator string) {
+func (formatter *excelFormatter) applySeparators(renderedNumber *string, decimalSeparator string, thousandSeparator string) {
 	var signLen int
 	var fracPosition int
 	fracPosition = strings.IndexRune(*renderedNumber, '.')
