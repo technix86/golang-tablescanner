@@ -87,10 +87,10 @@ func DetectExcelContentType(fileName string) (error, TExcelWorkbookType) {
 	signatureXLS := []byte("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1")
 	signatureXML := []byte("\xFF\xFE\x3C\x00\x3F\x00\x78\x00")
 	file, err := os.Open(fileName)
-	defer nowarnCloseCloser(file)
 	if nil != err {
 		return err, TypeExcelWorkbookUnknown
 	}
+	defer nowarnCloseCloser(file)
 	signature := make([]byte, 8)
 	bytesRead, err := file.Read(signature)
 	if err != nil {
