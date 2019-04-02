@@ -168,6 +168,10 @@ func (xlsx *xlsxStream) Close() error {
 	return xlsx.z.Close()
 }
 
+func (sheet *xlsxStream) FormatterAvailable() bool {
+	return false
+}
+
 func (xlsx *xlsxStream) Formatter() IExcelFormatter {
 	return &xlsx.formatter
 }

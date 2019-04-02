@@ -29,10 +29,15 @@ func newXLSStream(fileName string) (error, ITableDocumentScanner) {
 	var err error
 	xls := &xlsHandle{}
 	xls.workbook, xls.closer, err = exls.OpenWithCloser(fileName, "utf-8")
+	if err != nil {
+		return err, nil
+	}
+	/* not yet supported
 	err = xls.SetI18n("en")
 	if err != nil {
 		return err, nil
 	}
+	*/
 	numSheets := xls.workbook.NumSheets()
 	xls.sheets = make([]*xlsTableSheetInfo, numSheets)
 	foundSelected := false
@@ -41,7 +46,7 @@ func newXLSStream(fileName string) (error, ITableDocumentScanner) {
 		xls.sheets[i] = &xlsTableSheetInfo{Name: xsheet.Name, sheet: xsheet, HideLevel: TSheetHideLevel(xsheet.Visibility)}
 		if xsheet.Selected {
 			if foundSelected {
-				_,_=os.Stderr.WriteString(fmt.Sprintf("WARNING: more than one `selected` sheets found in file %s\n", fileName))
+				_, _ = os.Stderr.WriteString(fmt.Sprintf("WARNING: more than one `selected` sheets found in file %s\n", fileName))
 			} else {
 				xls.sheetSelected = i
 				xls.iteratorSheetId = i
@@ -64,13 +69,17 @@ func (xls *xlsHandle) Close() error {
 	return xls.closer.Close()
 }
 
+func (sheet *xlsHandle) FormatterAvailable() bool {
+	return false
+}
+
 func (xls *xlsHandle) SetI18n(string) error {
-	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!\n")
+	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format [1]!\n")
 	return nil
 }
 
 func (xls *xlsHandle) Formatter() IExcelFormatter {
-	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format!\n")
+	_, _ = os.Stderr.WriteString("WARNING! Formatter is unavailable for XLS format [2]!\n")
 	return newExcelFormatter("en")
 }
 

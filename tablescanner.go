@@ -50,6 +50,7 @@ type IExcelFormatter interface {
 
 type ITableDocumentScanner interface {
 	io.Closer
+	FormatterAvailable() bool
 	SetI18n(string) error
 	Formatter() IExcelFormatter
 	GetSheets() []ITableSheetInfo
