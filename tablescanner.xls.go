@@ -121,8 +121,6 @@ func (xls *xlsHandle) GetScanned() []string {
 }
 
 func (xls *xlsHandle) scanInternal() error {
-	ROWSTARTING := 0
-	COLSTARTING := 0
 	if xls.iteratorSheetId < 0 || xls.iteratorSheetId > len(xls.sheets) {
 		return fmt.Errorf("sheet #%d not found", xls.iteratorSheetId)
 	}
@@ -132,7 +130,7 @@ func (xls *xlsHandle) scanInternal() error {
 	if xls.iteratorRowNum > int(xls.sheets[xls.iteratorSheetId].sheet.MaxRow)+1 {
 		return io.EOF
 	}
-	row := xls.sheets[xls.iteratorSheetId].sheet.Row(xls.iteratorRowNum - 1 + ROWSTARTING)
+	row := xls.sheets[xls.iteratorSheetId].sheet.Row(xls.iteratorRowNum - 1)
 	if nil == row {
 		xls.iteratorScannedData = make([]string, 0)
 		return nil
@@ -142,8 +140,6 @@ func (xls *xlsHandle) scanInternal() error {
 	if colLast < colFirst {
 		return fmt.Errorf("invalid data for row #%d, FirstCol()=%d > LastCol()=%d", xls.iteratorRowNum, colFirst, colLast)
 	}
-	colFirst -= COLSTARTING
-	colLast -= COLSTARTING
 	xls.iteratorScannedData = make([]string, colLast+1, colLast+1)
 	for i := colFirst; i < colLast; i++ {
 		xls.iteratorScannedData[i] = row.ColExact(i)
