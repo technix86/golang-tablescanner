@@ -125,7 +125,7 @@ func newXMLStream(fileName string, textEncoding TTextEnconding, BOMPresent []byt
 		case EncodingUTF8, EncodingUnknown:
 			xmlDecodableBuf = xls.iteratorStreamSource
 		default:
-			return fmt.Errorf("text encoding of file(%s) has unservale value %#d", fileName, textEncoding), nil
+			return fmt.Errorf("text encoding of file(%s) has unservable value %#v", fileName, textEncoding), nil
 		}
 	}
 
@@ -157,10 +157,10 @@ func newXMLStream(fileName string, textEncoding TTextEnconding, BOMPresent []byt
 			case "Worksheet":
 				if 2 == level {
 					if nil == currentSheetOptions {
-						return fmt.Errorf("sheet #%d has no <WorksheetOptions> section"), nil
+						return fmt.Errorf("sheet #%d has no <WorksheetOptions> section", currentSheetId), nil
 					}
 					if -1 == currentSheetOpenOffset {
-						return fmt.Errorf("sheet #%d has no <Table> section"), nil
+						return fmt.Errorf("sheet #%d has no <Table> section", currentSheetId), nil
 					}
 					if nil != err {
 						return err, nil
@@ -199,7 +199,7 @@ func newXMLStream(fileName string, textEncoding TTextEnconding, BOMPresent []byt
 					currentSheetId = len(xls.sheets)
 					currentSheetOptions = &rawxmlWorksheetOptions{}
 					currentSheetOpenOffset = offset
-					_, currentSheetTableName = findXmlTokenAttrValue(&tok, "Name")
+					currentSheetTableName, _ = findXmlTokenAttrValue(&tok, "Name")
 				}
 			case "WorksheetOptions":
 				if 2 == level {
@@ -377,8 +377,8 @@ func (xls *xmlHandle) scanInternal() error {
 				if iteratorRXSegmentWT == xls.iteratorXMLSegment {
 					xls.iteratorXMLSegment = iteratorRXSegmentWTR
 					xls.iteratorScannedData = make([]string, 0, xls.iteratorCapacity)
-					err, currentRowNumStr := findXmlTokenAttrValue(&tok, "Index")
-					if nil == err {
+					currentRowNumStr, attrExists := findXmlTokenAttrValue(&tok, "Index")
+					if attrExists {
 						attrNum, err := strconv.Atoi(currentRowNumStr)
 						if nil != err {
 							return fmt.Errorf("cannot parse <Row> Index attr at offset %d", offset)
@@ -395,9 +395,9 @@ func (xls *xmlHandle) scanInternal() error {
 				if iteratorRXSegmentWTR == xls.iteratorXMLSegment {
 					// @todo: implement ss:MergeAcross
 					currentColumnNum := 0 // 1-based
-					err, colNumStr := findXmlTokenAttrValue(&tok, "Index")
-					mergeNum := 0
-					if nil == err {
+					mergeNum := 0         // merged cell attribute
+					colNumStr, attrExists := findXmlTokenAttrValue(&tok, "Index")
+					if attrExists {
 						currentColumnNum, err = strconv.Atoi(colNumStr)
 						if nil != err {
 							return fmt.Errorf("cannot parse <Row>#%d<Cell> Index attr at offset %d", xls.iteratorScannedRowNum, offset)
@@ -405,8 +405,8 @@ func (xls *xmlHandle) scanInternal() error {
 					} else {
 						currentColumnNum = len(xls.iteratorScannedData) + 1
 					}
-					err, mergeStr := findXmlTokenAttrValue(&tok, "MergeAcross")
-					if nil == err {
+					mergeStr, attrExists := findXmlTokenAttrValue(&tok, "MergeAcross")
+					if attrExists {
 						mergeNum, err = strconv.Atoi(mergeStr)
 						if nil != err {
 							return fmt.Errorf("cannot parse <Row>#%d<Cell>#%d MergeAcross attr at offset %d", xls.iteratorScannedRowNum, currentColumnNum, offset)

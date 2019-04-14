@@ -591,7 +591,7 @@ func (xlsx *xlsxStream) scanInternal() (err error) {
 						nextSegment = iteratorSegmentW
 					} else {
 						if tok.Name.Local == "dimension" {
-							_, dimensions := findXmlTokenAttrValue(&tok, "ref")
+							dimensions,_ := findXmlTokenAttrValue(&tok, "ref")
 							_, _, _, xCoordMax, _ := extractCellRangeCoords(dimensions)
 							xlsx.iteratorCapacity = xCoordMax
 						}
@@ -606,8 +606,8 @@ func (xlsx *xlsxStream) scanInternal() (err error) {
 					if tok.Name.Local == "row" {
 						nextSegment = iteratorSegmentWSR
 						xlsx.iteratorScannedData = make([]string, 0, xlsx.iteratorCapacity)
-						err, currentRowNumStr := findXmlTokenAttrValue(&tok, "r")
-						if nil == err {
+						currentRowNumStr,attrExists := findXmlTokenAttrValue(&tok, "r")
+						if attrExists {
 							// attr "r" present, require valid int and greater than previous value
 							xlsx.iteratorScannedRowNum, err = strconv.Atoi(currentRowNumStr)
 							if nil != err {
@@ -625,17 +625,18 @@ func (xlsx *xlsxStream) scanInternal() (err error) {
 						nextSegment = iteratorSegmentWSRC
 						currentCellString = ""
 						currentColumnNum = -1
-						_, currentCellTypeStr = findXmlTokenAttrValue(&tok, "t")
-						_, currentCellStyleStr = findXmlTokenAttrValue(&tok, "s")
+						currentCellTypeStr,_ = findXmlTokenAttrValue(&tok, "t")
+						currentCellStyleStr,_ = findXmlTokenAttrValue(&tok, "s")
 						currentCellStyleId, err = strconv.Atoi(currentCellStyleStr)
 						if nil != err {
 							currentCellStyleId = -1
 						}
-						err, coords := findXmlTokenAttrValue(&tok, "r")
+						coords,ok := findXmlTokenAttrValue(&tok, "r")
 						var currentRowNum int
-						if nil == err {
-							err, currentColumnNum, currentRowNum = extractCellCoords(coords)
+						if !ok {
+							break SkipCurrentToken
 						}
+						err, currentColumnNum, currentRowNum = extractCellCoords(coords)
 						if nil == err && currentRowNum != xlsx.iteratorScannedRowNum {
 							err = fmt.Errorf("row[%d] != cell.row[%d] for cell %s", currentRowNum, xlsx.iteratorScannedRowNum, coords)
 						}
@@ -715,13 +716,14 @@ func (xlsx *xlsxStream) scanInternal() (err error) {
 	return nil
 }
 
-func findXmlTokenAttrValue(tok *xml.StartElement, attrName string) (error, string) {
+// @todo: implement simple ok or not ok instead of error
+func findXmlTokenAttrValue(tok *xml.StartElement, attrName string) (string,bool) {
 	for _, attr := range tok.Attr {
 		if attr.Name.Local == attrName {
-			return nil, attr.Value
+			return attr.Value,true
 		}
 	}
-	return fmt.Errorf("token attr [%s] not found", attrName), ""
+	return "",false
 }
 
 func extractCellRangeCoords(cellRangeAddr string) (err error, x1 int, y1 int, x2 int, y2 int) {
